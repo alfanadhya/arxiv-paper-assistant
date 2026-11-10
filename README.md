@@ -1,4 +1,4 @@
-# arXiv Paper Assistant (Chainlit)
+# arXiv Paper Assistant
 
 A clickable prototype of the flow: **ask → top 5 papers → add to reading list → export zip**.
 The search is a simple word match over the 5,520-paper arXiv cs.CL sample in `data/` (arXiv metadata, CC0), with no embeddings and no LLM. That's on purpose: the prototype tests the UI flow, not the search quality.
@@ -30,7 +30,7 @@ DEMO_PASSWORD="paper2026"
 
 ## What to click (test script)
 
-0. Log in with any username (e.g. `nami`) and the password `paper2026`. Each username has its own history.
+0. Log in with any username and the password `paper2026`. Each username has its own history.
 1. Ask `retrieval augmented generation evaluation`. You should see 1 summary message + 5 paper cards.
 2. Click **Add to reading list** on 2 papers. The right panel opens and shows them, with a green toast for each.
 3. Click Add on the same paper again. You should get the toast "Already in your reading list", with no duplicate.
