@@ -3,4 +3,12 @@
 __pycache__/
 .env
 history.db
-.chainlit/translations/
+.chainlit/translations/*
+!.chainlit/translations/en-US.json
+
+# local data, backups, caches
+.env.*
+*.db
+models_cache/
+selections/
+.vscode/

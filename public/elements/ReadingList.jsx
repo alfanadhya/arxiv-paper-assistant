@@ -1,34 +1,111 @@
 // The Reading List panel shown in Chainlit's right sidebar.
-// `props.papers` comes from Python (app.py -> refresh_sidebar).
+// `props.papers` and `props.pinned` come from Python (app.py -> refresh_sidebar).
 // `callAction` runs a Python @cl.action_callback with the same name.
 //
-// Rearranging works two ways:
-//   - drag a card by its handle (⋮⋮) and drop it on another card (mouse)
-//   - the ↑ / ↓ buttons (works on phones too, where dragging doesn't)
-// Either way, the new order is sent to Python with callAction("reorder").
-import { useState } from "react";
+// Reorder / remove are applied locally first (no sidebar reload), then sent to Python
+// with callAction("reorder") / callAction("remove_paper") so the session stays in sync.
+// Pin (default on): pinned = panel stays open and refreshes when papers are added;
+// unpinned = panel closes right away (like its close arrow) and again whenever a new question is asked
+// (reopen with the "Reading list" button).
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Trash2, Download, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
+import { Trash2, Download, GripVertical, ChevronUp, ChevronDown, Pin, PinOff } from "lucide-react";
+
+// Chainlit re-evaluates this file (remounting the component) whenever the chat UI re-renders, e.g. while
+// any action runs, which wipes React state. So the panel keeps its state on `window`, keyed by the
+// server's props.version: same version -> keep the local state; new version -> take the server's list.
+function loadStore() {
+  const s = window.__readingListStore;
+  if (s && s.version === props.version) return s;
+  const fresh = { version: props.version, papers: props.papers || [], pinned: props.pinned !== false };
+  window.__readingListStore = fresh;
+  return fresh;
+}
+
+function saveStore(patch) {
+  window.__readingListStore = { ...loadStore(), ...patch };
+}
 
 export default function ReadingList() {
-  const papers = props.papers || [];
+  const initial = loadStore();
+  const [papers, setPapers] = useState(initial.papers);
+  const [pinned, setPinned] = useState(initial.pinned);   // default: pinned
   const [dragIndex, setDragIndex] = useState(null);   // the card being dragged
   const [overIndex, setOverIndex] = useState(null);   // the card it's hovering over
 
+  // New server version (panel opened/redrawn): take the server's list.
+  useEffect(() => {
+    const s = loadStore();
+    setPapers(s.papers);
+    setPinned(s.pinned);
+  }, [props.version]);
+
+  // Paper selected/unselected on a chat card: Python sends the new list as a window message
+  // (app.push_reading_list), so the open panel updates in place without being redrawn.
+  useEffect(() => {
+    function onMessage(event) {
+      const data = event.data;
+      if (!data || data.type !== "reading_list") return;
+      setPapers(data.papers || []);
+      setPinned(data.pinned !== false);
+      saveStore({ papers: data.papers || [], pinned: data.pinned !== false });
+      window.__readingListAck = data.seq;   // tells public/custom.js the update was applied in place
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   function move(from, to) {
-    if (from === to || to < 0 || to >= papers.length) return;
-    const order = papers.map((p) => p.arxiv_id);
-    const [moved] = order.splice(from, 1);
-    order.splice(to, 0, moved);
-    callAction({ name: "reorder", payload: { order } });
+    if (from === null || from === to || to < 0 || to >= papers.length) return;
+    const next = [...papers];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setPapers(next);                                             // instant
+    saveStore({ papers: next });                                 // survives remounts
+    callAction({ name: "reorder", payload: { order: next.map((p) => p.arxiv_id) } });
+  }
+
+  function remove(arxiv_id) {
+    const next = papers.filter((p) => p.arxiv_id !== arxiv_id);
+    setPapers(next);
+    saveStore({ papers: next });
+    callAction({ name: "remove_paper", payload: { arxiv_id } });
+  }
+
+  // Close the panel exactly like its own close arrow (the button in Chainlit's #side-view-title header);
+  // small screens show the panel as a sheet without that button, Escape closes it there.
+  function closePanel() {
+    const close = document.querySelector("#side-view-title button");
+    if (close) close.click();
+    else document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  }
+
+  // Unpinning also closes the panel at once (after the new state is saved); reopen it with the
+  // "Reading list" tab/button, it then stays unpinned until pinned again.
+  function togglePin() {
+    const next = !pinned;
+    setPinned(next);
+    saveStore({ pinned: next });
+    const saved = callAction({ name: "pin_list", payload: { pinned: next } });
+    if (!next) Promise.resolve(saved).finally(closePanel);
   }
 
   return (
     <div className="flex flex-col gap-3 h-full">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {pinned ? "Pinned: stays open" : "Unpinned: closes on the next question"}
+        </p>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={togglePin}
+                title={pinned ? "Unpin panel" : "Pin panel"}>
+          {pinned ? <Pin className="h-4 w-4 text-primary" /> : <PinOff className="h-4 w-4" />}
+        </Button>
+      </div>
+
       {papers.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Empty. Click "Add to reading list" under a paper in the chat.
+          Empty. Click "☐ Select" under a paper in the chat.
         </p>
       )}
       {papers.length > 1 && (
@@ -71,12 +148,7 @@ export default function ReadingList() {
               <ChevronDown className="h-4 w-4" />
             </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Remove"
-            onClick={() => callAction({ name: "remove_paper", payload: { arxiv_id: p.arxiv_id } })}
-          >
+          <Button variant="ghost" size="icon" title="Remove" onClick={() => remove(p.arxiv_id)}>
             <Trash2 className="h-4 w-4 text-red-600" />
           </Button>
         </Card>

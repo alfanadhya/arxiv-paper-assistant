@@ -1,211 +1,362 @@
-"""Chainlit prototype: ask -> top 5 papers -> add to reading list -> export zip.
+"""Chainlit GUI helpers (paper cards, select buttons, reading-list sidebar, zip export, chat resume).
 
-Run from the project folder:
-    .venv/Scripts/chainlit.exe run app.py -w
-Then open http://localhost:8000
-
-How the pieces talk to each other:
-    user question ─► on_message ─► rag.ask() ─► 5 paper messages, each with an "Add" button
-    "Add" button  ─► add_paper callback ─► reading list in user_session ─► refresh sidebar
-    sidebar (public/elements/ReadingList.jsx):
-        Bin button    ─► callAction("remove_paper") ─► remove_paper callback
-        Export button ─► callAction("export")       ─► export callback ─► zip in chat
-
-Chat history (left panel):
-    login ─► password_auth_callback ─► Chainlit saves every chat in history.db (db.py)
-    click an old chat ─► on_chat_resume ─► Chainlit restores user_session
-                         (reading_list, history) ─► we redraw the reading-list panel
+No handlers are registered here: threeofus_main.py owns the @cl.on_* / @cl.action_callback
+decorators (and the auto-login + data layer) and calls these functions.
+The sidebar needs public/elements/ReadingList.jsx; saved chats live in history.db (db.py).
 """
 
 import json
-import os
 
 import chainlit as cl
-from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 
-import db
 import export
-import rag
 
-MAX_HISTORY_TURNS = 10  # how many past question/answer pairs to keep for LangChain memory later
+MAX_HISTORY_TURNS = 10  # question/answer pairs kept for follow-up questions
+MAX_SHOWN_PAPERS = 100  # papers kept in papers_by_id (session is saved to the DB, capped at 1 MB)
 
-
-# ---------------------------------------------------------------- login + database
-# The left history panel only appears when BOTH of these are set up:
-# a login (so Chainlit knows whose chats to list) and a data layer (where chats are saved).
-@cl.password_auth_callback
-def login(username: str, password: str):
-    # Prototype: anyone can log in with any username + the shared password from .env.
-    # Each username gets its own chat history.
-    if password == os.environ["DEMO_PASSWORD"] and username.strip():
-        return cl.User(identifier=username.strip().lower())
-    return None
+WELCOME = ("Hi! Use **search=** to search the arXiv papers by topic, e.g. "
+           "*search= graph neural networks for drug discovery*, or **title=** to find one paper "
+           "by its exact title, e.g. *title= Attention is all you need*. Optional filters: **year=** "
+           "(*2021*, *2019-2022*, *2019-* or *-2020*) and **author=** (several separated by *;*), e.g. "
+           "*search= graph convolutional networks year=2017- author=Thomas Kipf*. "
+           "Anything else is a normal chat "
+           "with the model. Click **☐ Select** under a paper to add it to your reading list, then export it "
+           "as a zip (BibTeX for Zotero/Mendeley + PDFs) together with the selected chunks.")
 
 
-@cl.data_layer
-def get_data_layer():
-    db.create_tables()
-    return SQLAlchemyDataLayer(conninfo=db.DATABASE_URL)
-
-
-# ---------------------------------------------------------------- helpers
+# ---------------------------------------------------------------- session state
+# Current reading list (papers bearing a checkmark, in user order).
 def reading_list() -> list[dict]:
     return cl.user_session.get("reading_list", [])
 
 
-async def refresh_sidebar():
-    """Redraw the right-hand panel with the current reading list."""
-    await cl.ElementSidebar.set_title("📚 Reading List")
-    await cl.ElementSidebar.set_elements([
-        cl.CustomElement(name="ReadingList", props={"papers": reading_list()}),
-    ])
+# Paper dict shown earlier in this chat, by arXiv id.
+def paper_by_id(arxiv_id: str) -> dict | None:
+    return cl.user_session.get("papers_by_id", {}).get(arxiv_id)
 
 
-def remember(role: str, content: str):
-    """Keep the conversation as a plain list of {"role", "content"} dicts.
-
-    Chainlit saves user_session into the database with the chat, so this list
-    comes back when the user reopens an old chat from the left panel.
-    Later, LangChain can use it directly: a ChatPromptTemplate with
-    MessagesPlaceholder("history") accepts dicts in this format.
-    """
-    history = cl.user_session.get("history", [])
-    history.append({"role": role, "content": content})
-    cl.user_session.set("history", history[-2 * MAX_HISTORY_TURNS:])
+# Reset the GUI state for a new chat.
+def init_session() -> None:
+    cl.user_session.set("reading_list", [])
+    cl.user_session.set("papers_by_id", {})   # every paper shown so far
+    cl.user_session.set("buttons", {})        # arxiv_id -> (select Action, message id)
+    cl.user_session.set("history", [])        # conversation memory for follow-ups
+    cl.user_session.set("sidebar_pinned", True)   # reading-list panel pinned by default
 
 
-# Buttons. Chainlit saves messages in the database but NOT their buttons, so
-# each message also stores what its button needs in `metadata` (which IS saved).
-# When an old chat is reopened, resume() rebuilds the buttons from that metadata.
+# After a resume, add any session keys that were not restored (keeps restored ones).
+def ensure_session() -> None:
+    for key, empty in (("reading_list", []), ("papers_by_id", {}), ("history", [])):
+        if not isinstance(cl.user_session.get(key), type(empty)):
+            cl.user_session.set(key, empty)
+    cl.user_session.set("buttons", {})        # Action objects are never restored
+
+
+# ---------------------------------------------------------------- conversation memory
+# Conversation so far as [{"role", "content"}] (LangChain MessagesPlaceholder format).
+def history() -> list[dict]:
+    return cl.user_session.get("history", [])
+
+
+# Append one turn to the session history, keeping the last MAX_HISTORY_TURNS pairs.
+def remember(role: str, content: str) -> None:
+    items = history()
+    items.append({"role": role, "content": content})
+    cl.user_session.set("history", items[-2 * MAX_HISTORY_TURNS:])
+
+
+# ---------------------------------------------------------------- result display (data -> GUI)
+# These only reshape search results for display; they take plain values, so app.py never imports
+# threeofus_main (which would load a second copy of the module under Chainlit).
+
+# Publication year from a hit's metadata; 0 if missing.
+def paper_year(hit) -> int:
+    year = (getattr(hit, "metadata", None) or {}).get("year")
+    return year if isinstance(year, int) else 0
+
+
+# Hits picked by the model, in display order, with their labels ("3", "S2"); r is a SearchResponse.
+def picked_hits(r) -> list[tuple[str, object]]:
+    papers = [(str(n), r.papers[n - 1]) for n in r.top_papers]
+    surveys = [(f"S{n}", r.surveys[n - 1]) for n in r.top_surveys]
+    return papers + surveys
+
+
+# 'Last, First[, Suffix]' -> 'First Last[ Suffix]' (BibTeX export needs the last name last).
+def display_author(name: str) -> str:
+    parts = [p.strip() for p in name.split(",")]
+    return " ".join([parts[1], parts[0]] + parts[2:]) if len(parts) > 1 and parts[1] else parts[0]
+
+
+# Convert a retrieved hit into the paper dict used by the GUI and the zip export.
+def to_paper(hit, label: str, why: str = "") -> dict:
+    meta = hit.metadata
+    authors = meta.get("authors") or []
+    if isinstance(authors, str):
+        authors = authors.split("; ")
+    categories = meta.get("categories") or [meta.get("primary_category") or "cs"]
+    if isinstance(categories, str):
+        categories = categories.split()
+    abstract = hit.text.split("\n\n", 1)[-1]
+    return {
+        "chunk_id": hit.point_id, "label": label, "arxiv_id": hit.arxiv_id, "title": hit.title,
+        "authors": [display_author(a) for a in authors], "year": paper_year(hit), "categories": categories,
+        "abstract": abstract, "abstract_snippet": abstract[:300] + ("..." if len(abstract) > 300 else ""),
+        "why_relevant": why, "score": round(hit.vector_score, 4),
+        "abs_url": hit.url, "pdf_url": f"https://arxiv.org/pdf/{hit.arxiv_id}",
+        # compact copy of the chunk metadata, so a resumed chat can still write selected chunks
+        "metadata": {k: meta[k] for k in ("year", "published", "primary_category", "categories",
+                                          "authors", "doi", "journal_ref") if k in meta},
+    }
+
+
+# Rebuild a minimal hit from a saved paper dict (used after a chat is resumed from the DB).
+def paper_to_hit(p: dict):
+    from types import SimpleNamespace
+    return SimpleNamespace(point_id=p["chunk_id"], arxiv_id=p["arxiv_id"], title=p["title"], url=p["abs_url"],
+                           text=f"{p['title']}\n\n{p['abstract']}", vector_score=p.get("score", 0.0),
+                           metadata=p.get("metadata") or {"year": p.get("year")})
+
+
+# Markdown summary of a successful search response; filters_text comes from describe_filters().
+def summary_md(r, filters_text: str) -> str:
+    lines = []
+    if r.search_prompt and r.search_prompt != r.prompt:
+        lines.append(f"**Follow-up understood as:** {r.search_prompt}")
+    label = "Title" if getattr(r, "mode", "search") == "title" else "Topic"
+    lines.append(f"**{label}:** {r.analysis.corrected_query} · **Filters:** {filters_text}")
+    if r.analysis.authors and getattr(r, "mode", "search") == "title":   # search: shown in the Filters line
+        lines.append(f"**Author hint (bonus, not a filter):** {', '.join(r.analysis.authors)}")
+    lines += [f"⚠️ {w}" for w in r.warnings]
+    if r.criteria:
+        lines.append("**Evaluation criteria:**\n" + "\n".join(f"- {c}" for c in r.criteria))
+    if r.best:
+        lines.append(f"**Best match:** [{r.best[0]}] {r.best[1].title}\n\n_{r.why_best}_")
+    if not picked_hits(r):
+        lines.append("The model picked no papers from the results.")
+    return "\n\n".join(lines)
+
+
+# ---------------------------------------------------------------- widgets
+# Buttons get a fixed id per message (not a random one): the browser appends every button it receives and
+# removes only by id, so re-sending a message's button (chat resume after a reconnect/server restart) must
+# first remove the copy the browser may still show; see resend().
+def _button_id(kind: str, msg_id: str | None) -> str:
+    import uuid
+    return f"{kind}-{msg_id}" if msg_id else f"{kind}-{uuid.uuid4()}"
+
+
+# Show a button under a message exactly once: drop a copy with the same id, then send it.
+async def resend(action: cl.Action, for_id: str) -> None:
+    await action.remove()
+    await action.send(for_id=for_id)
+
+
+# Select/unselect button for one paper; label shows the checkmark state.
+def select_button(arxiv_id: str, checked: bool, msg_id: str | None = None) -> cl.Action:
+    return cl.Action(name="add_paper", payload={"arxiv_id": arxiv_id},
+                     label="☑ Selected" if checked else "☐ Select",
+                     tooltip="Click to remove from reading list" if checked else "Click to add to reading list",
+                     id=_button_id("select", msg_id))
+
+
+# Original "Add to reading list" button (kept; select_button replaced it in the chat).
 def add_button(arxiv_id: str) -> cl.Action:
     return cl.Action(name="add_paper", payload={"arxiv_id": arxiv_id},
                      label="Add to reading list", icon="plus")
 
 
-def open_list_button() -> cl.Action:
-    return cl.Action(name="open_list", payload={}, label="Reading list", icon="book-open")
+# Button that opens the reading-list sidebar. Its id starts with 'open-list-' so the always-visible
+# "Reading list" tab (public/custom.js) can find and click one of these buttons.
+def open_list_button(msg_id: str | None = None) -> cl.Action:
+    return cl.Action(name="open_list", payload={}, label="Reading list", icon="book-open",
+                     id=_button_id("open-list", msg_id))
 
 
+# Markdown card for one paper.
 def paper_card(p: dict) -> str:
     authors = ", ".join(p["authors"][:3]) + (" et al." if len(p["authors"]) > 3 else "")
-    return (
-        f"### [{p['title']}]({p['abs_url']})\n"
-        f"`{p['arxiv_id']}` · {p['year']} · {authors}\n\n"
-        f"_{p['why_relevant']}_\n\n"
-        f"{p['abstract_snippet']}"
-    )
+    why = f"_{p['why_relevant']}_\n\n" if p.get("why_relevant") else ""
+    return (f"### [{p['label']}] [{p['title']}]({p['abs_url']})\n"
+            f"`{p['arxiv_id']}` · {p['year'] or 'year unknown'} · {authors}\n\n"
+            f"{why}{p['abstract_snippet']}")
 
 
-# ---------------------------------------------------------------- chat
-@cl.on_chat_start
-async def start():
-    cl.user_session.set("reading_list", [])
-    cl.user_session.set("papers_by_id", {})   # every paper shown so far, so buttons only need the ID
-    cl.user_session.set("history", [])
-    await cl.Message(
-        "Hi! Ask about a research topic and I'll show the 5 most related arXiv papers. "
-        "Click **➕ Add** to put a paper in your reading list, then export it as a zip "
-        "(BibTeX for Zotero/Mendeley + PDFs)."
-    ).send()
+# True if the reading-list panel is pinned (default).
+def is_pinned() -> bool:
+    return cl.user_session.get("sidebar_pinned", True) is not False
 
 
-@cl.on_chat_resume
-async def resume(thread: dict):
-    # Chainlit has already restored user_session (reading_list, papers_by_id, history)
-    # and the messages from the database. Buttons and the panel aren't saved, so
-    # rebuild them: find each message's metadata and attach its button again.
-    for step in thread.get("steps", []):
+# Save the pin state sent by the panel.
+def set_pinned(pinned: bool) -> None:
+    cl.user_session.set("sidebar_pinned", bool(pinned))
+
+
+# Redraw (and open) the right-hand panel with the current reading list.
+# A new key/version each time: Chainlit ignores set_elements with an unchanged key, and the panel uses
+# the version to decide whether to keep its own (browser-side) state or take the server's list.
+async def refresh_sidebar() -> None:
+    version = cl.user_session.get("sidebar_version", 0) + 1
+    cl.user_session.set("sidebar_version", version)
+    await cl.ElementSidebar.set_title("📚 Reading List")
+    await cl.ElementSidebar.set_elements([
+        cl.CustomElement(name="ReadingList",
+                         props={"papers": reading_list(), "pinned": is_pinned(), "version": version}),
+    ], key=f"reading-list-{version}")
+
+
+# Send the current reading list to the page without redrawing the panel (no reload): an open panel updates
+# its list in place (ReadingList.jsx); a closed one is opened by public/custom.js.
+async def push_reading_list() -> None:
+    import time
+    await cl.send_window_message({"type": "reading_list", "papers": reading_list(), "pinned": is_pinned(),
+                                  "seq": time.time_ns()})   # seq: the panel confirms it applied this update
+
+
+# Close the right-hand panel.
+async def close_sidebar() -> None:
+    await cl.ElementSidebar.set_elements([])
+
+
+# ---------------------------------------------------------------- messages
+# Greeting shown when a chat starts; it carries a "Reading list" button, so the always-visible tab
+# always has a button to trigger, even before the first search.
+async def send_welcome() -> None:
+    msg = cl.Message(WELCOME)
+    msg.actions = [open_list_button(msg.id)]
+    await msg.send()
+
+
+# Model summary message with a "Reading list" button.
+async def send_summary(summary: str) -> None:
+    msg = cl.Message(summary, metadata={"kind": "summary"})
+    msg.actions = [open_list_button(msg.id)]
+    await msg.send()
+
+
+# One paper card with its select button; remembers the paper and button.
+async def send_paper(p: dict, checked: bool) -> None:
+    shown = cl.user_session.get("papers_by_id")
+    shown.pop(p["arxiv_id"], None)
+    shown[p["arxiv_id"]] = p
+    keep = {q["arxiv_id"] for q in reading_list()}
+    for old_id in [i for i in shown if i not in keep][:-MAX_SHOWN_PAPERS]:   # drop oldest unselected
+        del shown[old_id]
+    msg = cl.Message(content=paper_card(p), metadata={"arxiv_id": p["arxiv_id"]})
+    button = select_button(p["arxiv_id"], checked, msg.id)
+    msg.actions = [button]
+    await msg.send()
+    cl.user_session.get("buttons")[p["arxiv_id"]] = (button, msg.id)
+
+
+# Plain error/notice message.
+async def send_notice(text: str) -> None:
+    await cl.Message(text).send()
+
+
+# Collapsible diagnostics panel (public/elements/Diagnostics.jsx) shown under the answer.
+async def send_diagnostics_panel(data: dict) -> None:
+    panel = cl.CustomElement(name="Diagnostics", props=data, display="inline")
+    await cl.Message(content="", elements=[panel], author="diagnostics").send()
+
+
+# Diagnostic digest as a plain-text message (kept; the GUI now uses send_diagnostics_panel).
+async def send_diagnostics(lines: list[str]) -> None:
+    if lines:
+        await cl.Message("**Diagnostic digest**\n" + "\n".join(f"- {d}" for d in lines),
+                         author="diagnostics").send()
+
+
+# Swap a paper's select button so its label matches the checkmark state.
+async def set_button_state(arxiv_id: str, checked: bool) -> None:
+    buttons = cl.user_session.get("buttons")
+    if arxiv_id not in buttons:
+        return
+    old, msg_id = buttons[arxiv_id]
+    await old.remove()
+    new = select_button(arxiv_id, checked, msg_id)
+    await resend(new, msg_id)
+    buttons[arxiv_id] = (new, msg_id)
+
+
+# Rebuild buttons and the sidebar when an old chat is reopened (call ensure_session() first).
+async def resume(thread: dict) -> None:
+    selected = {p["arxiv_id"] for p in reading_list()}
+    buttons = cl.user_session.get("buttons")
+    steps = thread.get("steps", [])
+    has_list_button = False
+    for step in steps:
         meta = step.get("metadata") or {}
         if isinstance(meta, str):
             meta = json.loads(meta)
-        if "arxiv_id" in meta:
-            await add_button(meta["arxiv_id"]).send(for_id=step["id"])
+        if "arxiv_id" in meta and paper_by_id(meta["arxiv_id"]) is not None:
+            button = select_button(meta["arxiv_id"], meta["arxiv_id"] in selected, step["id"])
+            await resend(button, step["id"])   # never a 2nd copy if the browser still shows the old one
+            buttons[meta["arxiv_id"]] = (button, step["id"])
         elif meta.get("kind") == "summary":
-            await open_list_button().send(for_id=step["id"])
+            await resend(open_list_button(step["id"]), step["id"])
+            has_list_button = True
+    if not has_list_button and steps:   # keep a button for the always-visible "Reading list" tab
+        await resend(open_list_button(steps[0]["id"]), steps[0]["id"])
     if reading_list():
         await refresh_sidebar()
 
 
-@cl.on_message
-async def on_message(msg: cl.Message):
-    # history lets the real RAG understand follow-ups like "more papers like the second one".
-    result = rag.ask(msg.content, history=cl.user_session.get("history"))
-    await cl.Message(result["summary"], actions=[open_list_button()],
-                     metadata={"kind": "summary"}).send()
-
-    remember("user", msg.content)
-    # Save the titles too, so a follow-up question can refer to "the second paper".
-    remember("assistant", result["summary"] + "\n" + "\n".join(
-        f"{i}. [{p['arxiv_id']}] {p['title']}" for i, p in enumerate(result["papers"], 1)))
-
-    shown = cl.user_session.get("papers_by_id")
-    for p in result["papers"]:
-        shown[p["arxiv_id"]] = p
-        await cl.Message(content=paper_card(p), actions=[add_button(p["arxiv_id"])],
-                         metadata={"arxiv_id": p["arxiv_id"]}).send()
-
-
-# ---------------------------------------------------------------- buttons
-@cl.action_callback("open_list")
-async def open_list(action: cl.Action):
-    await refresh_sidebar()
-
-
-@cl.action_callback("add_paper")
-async def add_paper(action: cl.Action):
-    paper = cl.user_session.get("papers_by_id")[action.payload["arxiv_id"]]
-    items = reading_list()
-    if any(p["arxiv_id"] == paper["arxiv_id"] for p in items):
-        await cl.context.emitter.send_toast("Already in your reading list", "info")
-    else:
-        items.append(paper)
-        cl.user_session.set("reading_list", items)
-        await cl.context.emitter.send_toast(f"Added: {paper['title'][:60]}", "success")
-    await refresh_sidebar()
-
-
-@cl.action_callback("remove_paper")
-async def remove_paper(action: cl.Action):
-    items = [p for p in reading_list() if p["arxiv_id"] != action.payload["arxiv_id"]]
+# ---------------------------------------------------------------- reading list
+# Add a shown paper to the reading list; returns False if already there (no toast: the card button shows it).
+async def add_to_list(arxiv_id: str) -> bool:
+    paper, items = paper_by_id(arxiv_id), reading_list()
+    if paper is None or any(p["arxiv_id"] == arxiv_id for p in items):
+        return False
+    items.append(paper)
     cl.user_session.set("reading_list", items)
-    await refresh_sidebar()
+    return True
 
 
-@cl.action_callback("reorder")
-async def reorder(action: cl.Action):
-    """The panel sends the new order as a list of IDs, e.g. ["2301.11709", "2306.16313", ...]."""
+# Remove a paper from the reading list; returns False if it was not there.
+async def remove_from_list(arxiv_id: str) -> bool:
+    items = reading_list()
+    kept = [p for p in items if p["arxiv_id"] != arxiv_id]
+    cl.user_session.set("reading_list", kept)
+    return len(kept) != len(items)
+
+
+# Apply the order sent by the sidebar (list of arXiv ids); unknown ids are kept at the end.
+def reorder(order: list[str]) -> None:
     by_id = {p["arxiv_id"]: p for p in reading_list()}
-    new_order = [by_id[i] for i in action.payload["order"] if i in by_id]
-    # Safety net: keep any paper the panel didn't mention, at the end.
-    new_order += [p for p in reading_list() if p["arxiv_id"] not in action.payload["order"]]
+    new_order = [by_id[i] for i in order if i in by_id]
+    new_order += [p for p in reading_list() if p["arxiv_id"] not in order]
     cl.user_session.set("reading_list", new_order)
-    await refresh_sidebar()
 
 
-@cl.action_callback("export")
-async def export_list(action: cl.Action):
+# Build and send the zip (BibTeX + PDFs) for the reading list; returns False if empty.
+async def export_list() -> bool:
     items = reading_list()
     if not items:
-        await cl.context.emitter.send_toast("Your reading list is empty", "warning")
-        return
+        await send_notice("Your reading list is empty: click **☐ Select** under a paper first.")
+        return False
 
     status = cl.Message(f"Preparing {len(items)} papers. arXiv allows one download every "
                         f"3 seconds, so this takes about {3 * len(items)} s...")
     await status.send()
 
+    # Show download progress in the status message.
     async def on_progress(i, n, p):
         status.content = f"Downloading PDF {i}/{n}: `{p['arxiv_id']}` {p['title'][:60]}"
         await status.update()
 
-    data, failed = await export.build_zip(items, on_progress)
-
-    status.content = f"✅ Done: {len(items)} papers. Import `reading_list.bib` into Zotero or Mendeley."
+    try:
+        data, failed = await export.build_zip(items, on_progress)
+    except Exception as exc:
+        status.content = f"❌ Export failed: {type(exc).__name__}: {exc}"
+        await status.update()
+        return False
+    status.content = (f"✅ Done: {len(items)} papers. Click **reading_list.zip** below to download, "
+                      "then import `reading_list.bib` into Zotero or Mendeley.")
     if failed:
         status.content += f"\n\n⚠️ These PDFs failed to download: {', '.join(failed)}"
-    status.elements = [cl.File(name="reading_list.zip", content=data, display="inline",
-                               mime="application/zip")]
     await status.update()
-
-    # Keep the list after exporting (the user may add more papers and export again),
-    # and draw the panel again so it stays open.
-    await refresh_sidebar()
+    # Message.update() does not send new elements, so attach the zip to the message explicitly
+    zip_file = cl.File(name="reading_list.zip", content=data, display="inline", mime="application/zip")
+    await zip_file.send(for_id=status.id)
+    return True
