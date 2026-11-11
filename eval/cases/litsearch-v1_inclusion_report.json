@@ -1,0 +1,60 @@
+{
+  "case_set_version": "litsearch-v1",
+  "corpus_version": "sebun_bge768_hybrid_full (1,104,538 points; sub/*.jsonl)",
+  "seed": 2026,
+  "built_on": "2026-11-11",
+  "steps": [
+    {
+      "step": "1. LitSearch questions",
+      "questions": 597
+    },
+    {
+      "step": "2a. all targets have an arXiv ID",
+      "questions": 487
+    },
+    {
+      "step": "2b. all targets in our corpus, with an abstract",
+      "questions": 487
+    },
+    {
+      "step": "3. arXiv title matches S2 title (>= 0.9)",
+      "questions": 484
+    },
+    {
+      "step": "4. at most one question per target paper",
+      "questions": 427
+    },
+    {
+      "step": "5. stratified sample",
+      "questions": 40
+    }
+  ],
+  "final": {
+    "cases": 40,
+    "by_slice_split": {
+      "ls_specific/test": 22,
+      "ls_specific/dev": 10,
+      "ls_broad/test": 6,
+      "ls_broad/dev": 2
+    },
+    "by_query_set": {
+      "litsearch:inline_acl": 10,
+      "litsearch:inline_nonacl": 10,
+      "litsearch:manual_acl": 10,
+      "litsearch:manual_iclr": 10
+    },
+    "by_quality": {
+      "2": 26,
+      "1": 14
+    },
+    "multi_target_cases": 3,
+    "target_files": {
+      "arxiv-AI-307-200000.jsonl": 3,
+      "arxiv-AI-307-500000.jsonl": 8,
+      "arxiv-AI-307-600000.jsonl": 13,
+      "arxiv-AI-307-700000.jsonl": 6,
+      "arxiv-AI-307-400000.jsonl": 10,
+      "arxiv-AI-307-300000.jsonl": 3
+    }
+  }
+}

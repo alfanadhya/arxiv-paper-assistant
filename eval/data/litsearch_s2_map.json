@@ -1,0 +1,2872 @@
+{
+ "74065": {
+  "arxiv": null,
+  "title": "Open Language Learning for Information Extraction",
+  "year": 2012
+ },
+ "92327": {
+  "arxiv": null,
+  "title": "Statistical Approaches to Computer-Assisted Translation",
+  "year": 2009
+ },
+ "173611": {
+  "arxiv": null,
+  "title": "A Classifier-Based Parser with Linear Run-Time Complexity",
+  "year": 2005
+ },
+ "561429": {
+  "arxiv": null,
+  "title": "Senseval-3 task: Automatic labeling of semantic roles",
+  "year": 2004
+ },
+ "1331239": {
+  "arxiv": null,
+  "title": "CCGbank: A Corpus of CCG Derivations and Dependency Structures Extracted from the Penn Treebank",
+  "year": 2007
+ },
+ "1675452": {
+  "arxiv": null,
+  "title": "Neural Semantic Parsing with Type Constraints for Semi-Structured Tables",
+  "year": 2017
+ },
+ "1774259": {
+  "arxiv": null,
+  "title": "Bidirectional Recurrent Convolutional Neural Network for Relation Classification",
+  "year": 2016
+ },
+ "1781329": {
+  "arxiv": null,
+  "title": "Building Chinese Discourse Corpus with Connective-driven Dependency Tree Structure",
+  "year": 2014
+ },
+ "2172129": {
+  "arxiv": "1705.00106",
+  "title": "Learning to Ask: Neural Question Generation for Reading Comprehension",
+  "year": 2017
+ },
+ "2239324": {
+  "arxiv": null,
+  "title": "Are You Sure That This Happened? Assessing the Factuality Degree of Events in Text",
+  "year": 2012
+ },
+ "2476229": {
+  "arxiv": "1601.00770",
+  "title": "End-to-End Relation Extraction using LSTMs on Sequences and Tree Structures",
+  "year": 2016
+ },
+ "2782776": {
+  "arxiv": "1610.00388",
+  "title": "Learning to Translate in Real-time with Neural Machine Translation",
+  "year": 2016
+ },
+ "3033526": {
+  "arxiv": "1503.00075",
+  "title": "Improved Semantic Representations From Tree-Structured Long Short-Term Memory Networks",
+  "year": 2015
+ },
+ "4460159": {
+  "arxiv": "1803.11138",
+  "title": "Colorless Green Recurrent Networks Dream Hierarchically",
+  "year": 2018
+ },
+ "4711425": {
+  "arxiv": "1803.05355",
+  "title": "FEVER: a Large-scale Dataset for Fact Extraction and VERification",
+  "year": 2018
+ },
+ "5403702": {
+  "arxiv": "1508.03720",
+  "title": "Classifying Relations via Long Short Term Memory Networks along Shortest Dependency Paths",
+  "year": 2015
+ },
+ "5999791": {
+  "arxiv": "1708.03390",
+  "title": "Making Sense of Word Embeddings",
+  "year": 2016
+ },
+ "7473831": {
+  "arxiv": "1703.10931",
+  "title": "Sentence Simplification with Deep Reinforcement Learning",
+  "year": 2017
+ },
+ "7785983": {
+  "arxiv": null,
+  "title": "Learning for Semantic Parsing with Statistical Machine Translation",
+  "year": 2006
+ },
+ "8476273": {
+  "arxiv": null,
+  "title": "A Simple, Fast, and Effective Reparameterization of IBM Model 2",
+  "year": 2013
+ },
+ "9268430": {
+  "arxiv": "1704.07926",
+  "title": "From Language to Programs: Bridging Reinforcement Learning and Maximum Marginal Likelihood",
+  "year": 2017
+ },
+ "9870160": {
+  "arxiv": null,
+  "title": "Attention-Based Bidirectional Long Short-Term Memory Networks for Relation Classification",
+  "year": 2016
+ },
+ "10318045": {
+  "arxiv": null,
+  "title": "Identifying Relations for Open Information Extraction",
+  "year": 2011
+ },
+ "10919200": {
+  "arxiv": null,
+  "title": "On Improving the Accuracy of Readability Classification using Insights from Second Language Acquisition",
+  "year": 2012
+ },
+ "10961392": {
+  "arxiv": null,
+  "title": "Learning from Relatives: Unified Dialectal Arabic Segmentation",
+  "year": 2017
+ },
+ "11128248": {
+  "arxiv": null,
+  "title": "Humor Recognition and Humor Anchor Extraction",
+  "year": 2015
+ },
+ "11771220": {
+  "arxiv": null,
+  "title": "Supertagging With LSTMs",
+  "year": 2016
+ },
+ "12160022": {
+  "arxiv": null,
+  "title": "A Neural Architecture for Dialectal Arabic Segmentation",
+  "year": 2017
+ },
+ "12360898": {
+  "arxiv": null,
+  "title": "Cross-Language Text Classification Using Structural Correspondence Learning",
+  "year": 2010
+ },
+ "14515265": {
+  "arxiv": "1704.07398",
+  "title": "Predicting Native Language from Gaze",
+  "year": 2017
+ },
+ "14764893": {
+  "arxiv": null,
+  "title": "Identifying Appropriate Support for Propositions in Online User Comments",
+  "year": 2014
+ },
+ "16308735": {
+  "arxiv": "cond-mat/0503305",
+  "title": "Statistical mechanics of two-dimensional turbulence",
+  "year": 2005
+ },
+ "16509032": {
+  "arxiv": null,
+  "title": "Introduction to the CoNLL-2005 Shared Task: Semantic Role Labeling",
+  "year": 2005
+ },
+ "16911296": {
+  "arxiv": null,
+  "title": "Sequence-based Structured Prediction for Semantic Parsing",
+  "year": 2016
+ },
+ "17297069": {
+  "arxiv": "1605.07333",
+  "title": "Combining Recurrent and Convolutional Neural Networks for Relation Classification",
+  "year": 2016
+ },
+ "17553490": {
+  "arxiv": null,
+  "title": "SemEval-2007 Task-17: English Lexical Sample, SRL and All Words",
+  "year": 2007
+ },
+ "19206893": {
+  "arxiv": "1805.01052",
+  "title": "Constituency Parsing with a Self-Attentive Encoder",
+  "year": 2018
+ },
+ "21725691": {
+  "arxiv": "1812.08039",
+  "title": "Semantic Frame Parsing for Information Extraction : the CALOR corpus",
+  "year": 2018
+ },
+ "46937952": {
+  "arxiv": null,
+  "title": "OneStopEnglish corpus: A new corpus for automatic readability assessment and text simplification",
+  "year": 2018
+ },
+ "52055325": {
+  "arxiv": "1808.07042",
+  "title": "CoQA: A Conversational Question Answering Challenge",
+  "year": 2018
+ },
+ "52057510": {
+  "arxiv": "1808.07036",
+  "title": "QuAC: Question Answering in Context",
+  "year": 2018
+ },
+ "52115592": {
+  "arxiv": "1808.09101",
+  "title": "N-ary Relation Extraction using Graph-State LSTM",
+  "year": 2018
+ },
+ "52967399": {
+  "arxiv": "1810.04805",
+  "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+  "year": 2019
+ },
+ "174798321": {
+  "arxiv": "1906.01105",
+  "title": "Training Neural Machine Translation to Apply Terminology Constraints",
+  "year": 2019
+ },
+ "174800300": {
+  "arxiv": "1906.04937",
+  "title": "Partial Or Complete, That’s The Question",
+  "year": 2019
+ },
+ "174801080": {
+  "arxiv": "1906.02916",
+  "title": "Multi-hop Reading Comprehension through Question Decomposition and Rescoring",
+  "year": 2019
+ },
+ "192530110": {
+  "arxiv": null,
+  "title": "Sentence Mover’s Similarity: Automatic Evaluation for Multi-Sentence Texts",
+  "year": 2019
+ },
+ "196183567": {
+  "arxiv": null,
+  "title": "A Simple Recipe towards Reducing Hallucination in Neural Surface Realisation",
+  "year": 2019
+ },
+ "198918735": {
+  "arxiv": null,
+  "title": "Multi-dialect Neural Machine Translation and Dialectometry",
+  "year": 2018
+ },
+ "198967754": {
+  "arxiv": "1907.11779",
+  "title": "Supervised and Unsupervised Neural Approaches to Text Readability",
+  "year": 2019
+ },
+ "201058550": {
+  "arxiv": "1908.05731",
+  "title": "Simple and Effective Noisy Channel Modeling for Neural Machine Translation",
+  "year": 2019
+ },
+ "201646309": {
+  "arxiv": "1908.10084",
+  "title": "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
+  "year": 2019
+ },
+ "202540591": {
+  "arxiv": "1909.01441",
+  "title": "CrossWeigh: Training Named Entity Tagger from Imperfect Annotations",
+  "year": 2019
+ },
+ "202719327": {
+  "arxiv": "1909.10351",
+  "title": "TinyBERT: Distilling BERT for Natural Language Understanding",
+  "year": 2019
+ },
+ "203734629": {
+  "arxiv": "1910.01863",
+  "title": "Template-free Data-to-Text Generation of Finnish Sports News",
+  "year": 2019
+ },
+ "204960716": {
+  "arxiv": "1910.13461",
+  "title": "BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension",
+  "year": 2019
+ },
+ "204976362": {
+  "arxiv": "1910.12840",
+  "title": "Evaluating the Factual Consistency of Abstractive Text Summarization",
+  "year": 2019
+ },
+ "207556454": {
+  "arxiv": "1607.04606",
+  "title": "Enriching Word Vectors with Subword Information",
+  "year": 2016
+ },
+ "207880568": {
+  "arxiv": "1911.02116",
+  "title": "Unsupervised Cross-lingual Representation Learning at Scale",
+  "year": 2019
+ },
+ "210838924": {
+  "arxiv": "2001.07676",
+  "title": "Exploiting Cloze-Questions for Few-Shot Text Classification and Natural Language Inference",
+  "year": 2020
+ },
+ "211003735": {
+  "arxiv": "2001.11770",
+  "title": "Break It Down: A Question Understanding Benchmark",
+  "year": 2020
+ },
+ "212718077": {
+  "arxiv": "2003.05997",
+  "title": "Efficient Content-Based Sparse Attention with Routing Transformers",
+  "year": 2020
+ },
+ "214713480": {
+  "arxiv": "2003.13118",
+  "title": "Recursive Non-Autoregressive Graph-to-Graph Transformer for Dependency Parsing with Iterative Refinement",
+  "year": 2020
+ },
+ "215238965": {
+  "arxiv": "2004.03061",
+  "title": "Information-Theoretic Probing for Linguistic Structure",
+  "year": 2020
+ },
+ "215548904": {
+  "arxiv": "2004.04564",
+  "title": "Interpretability Analysis for Named Entity Recognition to Understand System Predictions and How They Can Improve",
+  "year": 2020
+ },
+ "216144650": {
+  "arxiv": "2004.11867",
+  "title": "Improving Massively Multilingual Neural Machine Translation and Zero-Shot Translation",
+  "year": 2020
+ },
+ "216562425": {
+  "arxiv": "2004.13637",
+  "title": "Recipes for Building an Open-Domain Chatbot",
+  "year": 2020
+ },
+ "216914087": {
+  "arxiv": "2004.14983",
+  "title": "Control, Generate, Augment: A Scalable Framework for Multi-Attribute Text Generation",
+  "year": 2020
+ },
+ "218470025": {
+  "arxiv": "2005.00084",
+  "title": "Aspect-Controlled Neural Argument Generation",
+  "year": 2020
+ },
+ "218487034": {
+  "arxiv": "2005.00661",
+  "title": "On Faithfulness and Factuality in Abstractive Summarization",
+  "year": 2020
+ },
+ "218487319": {
+  "arxiv": "2005.00636",
+  "title": "We Need To Talk About Random Splits",
+  "year": 2020
+ },
+ "218516743": {
+  "arxiv": "2005.02680",
+  "title": "A Top-down Neural Architecture towards Text-level Parsing of Discourse Rhetorical Structure",
+  "year": 2020
+ },
+ "218538004": {
+  "arxiv": "2005.03642",
+  "title": "On Exposure Bias, Hallucination and Domain Shift in Neural Machine Translation",
+  "year": 2020
+ },
+ "218901061": {
+  "arxiv": "2005.13407",
+  "title": "CausaLM: Causal Model Explanation Through Counterfactual Language Models",
+  "year": 2020
+ },
+ "218974489": {
+  "arxiv": null,
+  "title": "A Spelling Correction Corpus for Multiple Arabic Dialects",
+  "year": 2020
+ },
+ "219530980": {
+  "arxiv": "2006.03659",
+  "title": "DeCLUTR: Deep Contrastive Learning for Unsupervised Textual Representations",
+  "year": 2020
+ },
+ "220347683": {
+  "arxiv": "2007.01852",
+  "title": "Language-agnostic BERT Sentence Embedding",
+  "year": 2020
+ },
+ "220364230": {
+  "arxiv": "2007.02871",
+  "title": "DART: Open-Domain Structured Data Record to Text Generation",
+  "year": 2020
+ },
+ "221005781": {
+  "arxiv": "2008.02637",
+  "title": "Question and Answer Test-Train Overlap in Open-Domain Question Answering Datasets",
+  "year": 2020
+ },
+ "221507798": {
+  "arxiv": "2009.02252",
+  "title": "KILT: a Benchmark for Knowledge Intensive Language Tasks",
+  "year": 2020
+ },
+ "221703752": {
+  "arxiv": "2009.07058",
+  "title": "MLMLM: Link Prediction with Mean Likelihood Masked Language Model",
+  "year": 2020
+ },
+ "221970454": {
+  "arxiv": "2009.13080",
+  "title": "I Was Just Being Sarcastic! Reactive Supervision: A New Method for Collecting Sarcasm Data",
+  "year": 2020
+ },
+ "222140735": {
+  "arxiv": "2010.02423",
+  "title": "On the Role of Supervision in Unsupervised Constituency Parsing",
+  "year": 2020
+ },
+ "222141483": {
+  "arxiv": "2010.02573",
+  "title": "The Multilingual Amazon Reviews Corpus",
+  "year": 2020
+ },
+ "222208998": {
+  "arxiv": "2010.03714",
+  "title": "Don’t Parse, Insert: Multilingual Semantic Parsing with Insertion Based Decoding",
+  "year": 2020
+ },
+ "222290679": {
+  "arxiv": "2010.04898",
+  "title": "Open-Domain Question Answering Goes Conversational via Question Rewriting",
+  "year": 2020
+ },
+ "222310116": {
+  "arxiv": "2010.06028",
+  "title": "End-to-End Synthetic Data Generation for Domain Adaptation of Question Answering Systems",
+  "year": 2020
+ },
+ "222310837": {
+  "arxiv": "2010.06467",
+  "title": "Pretrained Transformers for Text Ranking: BERT and Beyond",
+  "year": 2020
+ },
+ "222377768": {
+  "arxiv": "2010.07835",
+  "title": "Fine-Tuning Pre-trained Language Model with Weak Supervision: A Contrastive-Regularized Self-Training Approach",
+  "year": 2020
+ },
+ "222378161": {
+  "arxiv": "2010.07882",
+  "title": "Understanding Neural Abstractive Summarization Models via Uncertainty",
+  "year": 2020
+ },
+ "223953416": {
+  "arxiv": "2010.08014",
+  "title": "GSum: A General Framework for Guided Neural Abstractive Summarization",
+  "year": 2020
+ },
+ "224725731": {
+  "arxiv": "2010.08684",
+  "title": "Example-Driven Intent Prediction with Observers",
+  "year": 2020
+ },
+ "224818197": {
+  "arxiv": "2010.10907",
+  "title": "Analyzing the Source and Target Contributions to Predictions in Neural Machine Translation",
+  "year": 2020
+ },
+ "225039884": {
+  "arxiv": "2010.11246",
+  "title": "On the Potential of Lexico-logical Alignments for Semantic Parsing to SQL Queries",
+  "year": 2020
+ },
+ "225040574": {
+  "arxiv": "2010.11934",
+  "title": "mT5: A Massively Multilingual Pre-trained Text-to-Text Transformer",
+  "year": 2020
+ },
+ "225066679": {
+  "arxiv": "2010.12773",
+  "title": "Structure-Grounded Pretraining for Text-to-SQL",
+  "year": 2020
+ },
+ "225067563": {
+  "arxiv": "2010.12794",
+  "title": "X-Class: Text Classification with Extremely Weak Supervision",
+  "year": 2020
+ },
+ "226254579": {
+  "arxiv": "2011.02593",
+  "title": "Detecting Hallucinated Content in Conditional Neural Sequence Generation",
+  "year": 2020
+ },
+ "226282456": {
+  "arxiv": "2011.04096",
+  "title": "Metrics also Disagree in the Low Scoring Range: Revisiting Summarization Evaluation Metrics",
+  "year": 2020
+ },
+ "226283450": {
+  "arxiv": null,
+  "title": "Do Models of Mental Health Based on Social Media Data Generalize?",
+  "year": 2020
+ },
+ "226965200": {
+  "arxiv": "2011.08067",
+  "title": "Hierarchical Transformer for Task Oriented Dialog Systems",
+  "year": 2020
+ },
+ "226976077": {
+  "arxiv": "2011.08320",
+  "title": "Don’t Patronize Me! An Annotated Dataset with Patronizing and Condescending Language towards Vulnerable Communities",
+  "year": 2020
+ },
+ "227231792": {
+  "arxiv": null,
+  "title": "Parallel resources for Tunisian Arabic Dialect Translation",
+  "year": 2020
+ },
+ "229349316": {
+  "arxiv": "2012.12007",
+  "title": "Uncertainty and Surprisal Jointly Deliver the Punchline: Exploiting Incongruity-Based Features for Humor Recognition",
+  "year": 2020
+ },
+ "229376913": {
+  "arxiv": "2012.11747",
+  "title": "RealFormer: Transformer Likes Residual Attention",
+  "year": 2020
+ },
+ "229680000": {
+  "arxiv": "2012.14210",
+  "title": "The Curse of Dense Low-Dimensional Information Retrieval for Large Index Sizes",
+  "year": 2020
+ },
+ "229923069": {
+  "arxiv": "2012.15828",
+  "title": "MiniLMv2: Multi-Head Self-Attention Relation Distillation for Compressing Pretrained Transformers",
+  "year": 2020
+ },
+ "229923538": {
+  "arxiv": "2012.15701",
+  "title": "BinaryBERT: Pushing the Limit of BERT Quantization",
+  "year": 2020
+ },
+ "229923710": {
+  "arxiv": "2012.15723",
+  "title": "Making Pre-trained Language Models Better Few-shot Learners",
+  "year": 2021
+ },
+ "229923720": {
+  "arxiv": "2012.14913",
+  "title": "Transformer Feed-Forward Layers Are Key-Value Memories",
+  "year": 2020
+ },
+ "229923949": {
+  "arxiv": "2012.14740",
+  "title": "LayoutLMv2: Multi-modal Pre-training for Visually-rich Document Understanding",
+  "year": 2020
+ },
+ "229924402": {
+  "arxiv": "2012.15409",
+  "title": "UNIMO: Towards Unified-Modal Understanding and Generation via Cross-Modal Contrastive Learning",
+  "year": 2020
+ },
+ "230433941": {
+  "arxiv": "2101.00190",
+  "title": "Prefix-Tuning: Optimizing Continuous Prompts for Generation",
+  "year": 2021
+ },
+ "231632658": {
+  "arxiv": "2101.06804",
+  "title": "What Makes Good In-Context Examples for GPT-3?",
+  "year": 2021
+ },
+ "231639161": {
+  "arxiv": "2101.07339",
+  "title": "MONAH: Multi-Modal Narratives for Humans to analyze conversations",
+  "year": 2021
+ },
+ "231648372": {
+  "arxiv": "2101.08231",
+  "title": "Word Alignment by Fine-tuning Embeddings on Parallel Corpora",
+  "year": 2021
+ },
+ "231672601": {
+  "arxiv": "2106.10199",
+  "title": "BitFit: Simple Parameter-efficient Fine-tuning for Transformer-based Masked Language-models",
+  "year": 2021
+ },
+ "231704318": {
+  "arxiv": null,
+  "title": "Zero-shot Neural Passage Retrieval via Domain-targeted Synthetic Question Generation",
+  "year": 2021
+ },
+ "231815627": {
+  "arxiv": "2010.08191",
+  "title": "RocketQA: An Optimized Training Approach to Dense Passage Retrieval for Open-Domain Question Answering",
+  "year": 2020
+ },
+ "231951460": {
+  "arxiv": "2102.09130",
+  "title": "Entity-level Factual Consistency of Abstractive Text Summarization",
+  "year": 2021
+ },
+ "232075836": {
+  "arxiv": "2103.00751",
+  "title": "Long Document Summarization in a Low Resource Setting using Pretrained Language Models",
+  "year": 2021
+ },
+ "232092599": {
+  "arxiv": "2103.01664",
+  "title": "Hate Towards the Political Opponent: A Twitter Corpus Study of the 2020 US Elections on the Basis of Offensive Speech and Stance Detection",
+  "year": 2021
+ },
+ "232104941": {
+  "arxiv": "2103.02227",
+  "title": "Data Augmentation with Hierarchical SQL-to-Question Generation for Cross-domain Text-to-SQL Parsing",
+  "year": 2021
+ },
+ "232185112": {
+  "arxiv": "2103.06874",
+  "title": "Canine: Pre-training an Efficient Tokenization-Free Encoder for Language Representation",
+  "year": 2021
+ },
+ "232185439": {
+  "arxiv": "2103.06410",
+  "title": "MediaSum: A Large-scale Media Interview Dataset for Dialogue Summarization",
+  "year": 2021
+ },
+ "232233194": {
+  "arxiv": "2103.08490",
+  "title": "Multi-view Subword Regularization",
+  "year": 2021
+ },
+ "232258000": {
+  "arxiv": "2103.09535",
+  "title": "Towards Few-shot Fact-Checking via Perplexity",
+  "year": 2021
+ },
+ "233004708": {
+  "arxiv": "2104.00783",
+  "title": "Action-Based Conversations Dataset: A Corpus for Building More In-Depth Task-Oriented Dialogue Systems",
+  "year": 2021
+ },
+ "233033613": {
+  "arxiv": "2104.02112",
+  "title": "Efficient Attentions for Long Document Summarization",
+  "year": 2021
+ },
+ "233189542": {
+  "arxiv": null,
+  "title": "BERxiT: Early Exiting for BERT with Better Fine-Tuning and Extension to Regression",
+  "year": 2021
+ },
+ "233189632": {
+  "arxiv": null,
+  "title": "PHASE: Learning Emotional Phase-aware Representations for Suicide Ideation Detection on Social Media",
+  "year": 2021
+ },
+ "233209848": {
+  "arxiv": "2104.04986",
+  "title": "Does syntax matter? A strong baseline for Aspect-based Sentiment Analysis with RoBERTa",
+  "year": 2021
+ },
+ "233210172": {
+  "arxiv": "2104.04689",
+  "title": "ShadowGNN: Graph Projection Neural Network for Text-to-SQL Parser",
+  "year": 2021
+ },
+ "233210199": {
+  "arxiv": "2104.05240",
+  "title": "Factual Probing Is [MASK]: Learning vs. Learning to Recall",
+  "year": 2021
+ },
+ "233210621": {
+  "arxiv": "2104.04597",
+  "title": "Probabilistic Box Embeddings for Uncertain Knowledge Graph Reasoning",
+  "year": 2021
+ },
+ "233219059": {
+  "arxiv": "2103.12693",
+  "title": "QuestEval: Summarization Asks for Fact-based Evaluation",
+  "year": 2021
+ },
+ "233219699": {
+  "arxiv": "2104.05807",
+  "title": "Does My Representation Capture X? Probe-Ably",
+  "year": 2021
+ },
+ "233230124": {
+  "arxiv": null,
+  "title": "Concealed Data Poisoning Attacks on NLP Models",
+  "year": 2021
+ },
+ "233231453": {
+  "arxiv": "2104.06599",
+  "title": "Learning How to Ask: Querying LMs with Mixtures of Soft Prompts",
+  "year": 2021
+ },
+ "233231544": {
+  "arxiv": "2104.07000",
+  "title": "IGA: An Intent-Guided Authoring Assistant",
+  "year": 2021
+ },
+ "233289483": {
+  "arxiv": "2104.08202",
+  "title": "Q^{2}: Evaluating Factual Consistency in Knowledge-Grounded Dialogues via Question Generation and Question Answering",
+  "year": 2021
+ },
+ "233289620": {
+  "arxiv": "2104.08027",
+  "title": "Fast, Effective, and Self-Supervised: Transforming Masked Language Models into Universal Lexical and Sentence Encoders",
+  "year": 2021
+ },
+ "233296059": {
+  "arxiv": "2104.08455",
+  "title": "Neural Path Hunter: Reducing Hallucination in Dialogue Systems via Path Grounding",
+  "year": 2021
+ },
+ "233296182": {
+  "arxiv": "2104.08315",
+  "title": "Surface Form Competition: Why the Highest Probability Answer Isn’t Always Right",
+  "year": 2021
+ },
+ "233296292": {
+  "arxiv": "2104.08821",
+  "title": "SimCSE: Simple Contrastive Learning of Sentence Embeddings",
+  "year": 2021
+ },
+ "233296494": {
+  "arxiv": "2104.08786",
+  "title": "Fantastically Ordered Prompts and Where to Find Them: Overcoming Few-Shot Prompt Order Sensitivity",
+  "year": 2021
+ },
+ "233296711": {
+  "arxiv": "2104.08718",
+  "title": "CLIPScore: A Reference-free Evaluation Metric for Image Captioning",
+  "year": 2021
+ },
+ "233296808": {
+  "arxiv": "2104.08691",
+  "title": "The Power of Scale for Parameter-Efficient Prompt Tuning",
+  "year": 2021
+ },
+ "233364964": {
+  "arxiv": null,
+  "title": "Universal Joy A Data Set and Results for Classifying Emotions Across Languages",
+  "year": 2021
+ },
+ "233407441": {
+  "arxiv": "2104.13346",
+  "title": "Understanding Factuality in Abstractive Summarization with FRANK: A Benchmark for Factuality Metrics",
+  "year": 2021
+ },
+ "233444226": {
+  "arxiv": "2104.14337",
+  "title": "Dynabench: Rethinking Benchmarking in NLP",
+  "year": 2021
+ },
+ "234334398": {
+  "arxiv": "2105.04241",
+  "title": "ReadTwice: Reading Very Large Documents with Memories",
+  "year": 2021
+ },
+ "234335834": {
+  "arxiv": "2105.03659",
+  "title": "Logic-Driven Context Extension and Data Augmentation for Logical Reasoning of Text",
+  "year": 2021
+ },
+ "234337605": {
+  "arxiv": "2105.03654",
+  "title": "Improving Named Entity Recognition by External Context Retrieving and Cooperative Learning",
+  "year": 2021
+ },
+ "234681504": {
+  "arxiv": "2105.06762",
+  "title": "DialogSum: A Real-Life Scenario Dialogue Summarization Dataset",
+  "year": 2021
+ },
+ "234741719": {
+  "arxiv": "2105.07148",
+  "title": "Lexicon Enhanced Chinese Sequence Labeling Using BERT Adapter",
+  "year": 2021
+ },
+ "234763248": {
+  "arxiv": "2105.08476",
+  "title": "Link Prediction on N-ary Relational Facts: A Graph-based Approach",
+  "year": 2021
+ },
+ "235097235": {
+  "arxiv": null,
+  "title": "Multi-input Recurrent Independent Mechanisms for leveraging knowledge sources: Case studies on sentiment analysis and health text mining",
+  "year": 2021
+ },
+ "235097242": {
+  "arxiv": null,
+  "title": "Adaptable and Interpretable Neural MemoryOver Symbolic Knowledge",
+  "year": 2021
+ },
+ "235097361": {
+  "arxiv": null,
+  "title": "MTAG: Modal-Temporal Attention Graph for Unaligned Human Multimodal Language Sequences",
+  "year": 2021
+ },
+ "235097475": {
+  "arxiv": null,
+  "title": "Sliding Selector Network with Dynamic Memory for Extractive Summarization of Long Documents",
+  "year": 2021
+ },
+ "235097520": {
+  "arxiv": null,
+  "title": "SPLAT: Speech-Language Joint Pre-Training for Spoken Language Understanding",
+  "year": 2021
+ },
+ "235097662": {
+  "arxiv": null,
+  "title": "Fine-grained Post-training for Improving Retrieval-based Dialogue Systems",
+  "year": 2021
+ },
+ "235166394": {
+  "arxiv": "2105.11098",
+  "title": "Prevent the Language Model from being Overconfident in Neural Machine Translation",
+  "year": 2021
+ },
+ "235187266": {
+  "arxiv": "2105.11741",
+  "title": "ConSERT: A Contrastive Framework for Self-Supervised Sentence Representation Transfer",
+  "year": 2021
+ },
+ "235196099": {
+  "arxiv": "2105.12400",
+  "title": "Hidden Killer: Invisible Textual Backdoor Attacks with Syntactic Trigger",
+  "year": 2021
+ },
+ "235265909": {
+  "arxiv": "2106.00085",
+  "title": "Language Model Evaluation Beyond Perplexity",
+  "year": 2021
+ },
+ "235294032": {
+  "arxiv": "2106.01300",
+  "title": "PP-Rec: News Recommendation with Personalized User Interest and Time-aware News Popularity",
+  "year": 2021
+ },
+ "235294159": {
+  "arxiv": "2106.01064",
+  "title": "Generating Informative Conclusions for Argumentative Texts",
+  "year": 2021
+ },
+ "235303644": {
+  "arxiv": "2012.01707",
+  "title": "Leveraging Abstract Meaning Representation for Knowledge Base Question Answering",
+  "year": 2020
+ },
+ "235313346": {
+  "arxiv": "2106.01793",
+  "title": "Three Sentences Are All You Need: Local Path Enhanced Document Relation Extraction",
+  "year": 2021
+ },
+ "235313508": {
+  "arxiv": "2106.01515",
+  "title": "Question Answering Over Temporal Knowledge Graphs",
+  "year": 2021
+ },
+ "235313818": {
+  "arxiv": "2106.01702",
+  "title": "PsyQA: A Chinese Dataset for Generating Long Counseling Text for Mental Health Support",
+  "year": 2021
+ },
+ "235313967": {
+  "arxiv": "2105.03023",
+  "title": "DExperts: Decoding-Time Controlled Text Generation with Experts and Anti-Experts",
+  "year": 2021
+ },
+ "235358586": {
+  "arxiv": "2106.03635",
+  "title": "GTM: A Generative Triple-wise Model for Conversational Question Generation",
+  "year": 2021
+ },
+ "235359080": {
+  "arxiv": "2106.03337",
+  "title": "Summary Grounded Conversation Generation",
+  "year": 2021
+ },
+ "235368202": {
+  "arxiv": "2106.04408",
+  "title": "HieRec: Hierarchical User Interest Modeling for Personalized News Recommendation",
+  "year": 2021
+ },
+ "235417102": {
+  "arxiv": "2106.06361",
+  "title": "Turn the Combination Lock: Learnable Textual Backdoor Attacks via Word Substitution",
+  "year": 2021
+ },
+ "235421599": {
+  "arxiv": "2008.09887",
+  "title": "Semi-Supervised Data Programming with Subset Selection",
+  "year": 2020
+ },
+ "235422047": {
+  "arxiv": "2106.06965",
+  "title": "Contrastive Attention for Automatic Chest X-ray Report Generation",
+  "year": 2021
+ },
+ "235422257": {
+  "arxiv": "2106.06899",
+  "title": "Memory-efficient Transformers via Top-k Attention",
+  "year": 2021
+ },
+ "235446386": {
+  "arxiv": "2106.08977",
+  "title": "Named Entity Recognition with Small Strongly Labeled and Large Weakly Labeled Data",
+  "year": 2021
+ },
+ "235446920": {
+  "arxiv": "2106.08556",
+  "title": "Coreference-Aware Dialogue Summarization",
+  "year": 2021
+ },
+ "235458429": {
+  "arxiv": "2106.09232",
+  "title": "Text2Event: Controllable Sequence-to-Structure Generation for End-to-end Event Extraction",
+  "year": 2021
+ },
+ "235623770": {
+  "arxiv": "2106.12944",
+  "title": "AIT-QA: Question Answering Dataset over Complex Tables in the Airline Industry",
+  "year": 2021
+ },
+ "235669650": {
+  "arxiv": "2106.15355",
+  "title": "On the Interaction of Belief Bias and Explanations",
+  "year": 2021
+ },
+ "235694265": {
+  "arxiv": "2107.00061",
+  "title": "All That’s ‘Human’ Is Not Gold: Evaluating Human Evaluation of Generated Text",
+  "year": 2021
+ },
+ "235720578": {
+  "arxiv": null,
+  "title": "In-Batch Negatives for Knowledge Distillation with Tightly-Coupled Teachers for Dense Retrieval",
+  "year": 2021
+ },
+ "236034497": {
+  "arxiv": "2107.07567",
+  "title": "Beyond Goldfish Memory: Long-Term Open-Domain Conversation",
+  "year": 2021
+ },
+ "236034557": {
+  "arxiv": "2107.07566",
+  "title": "Internet-Augmented Dialogue Generation",
+  "year": 2021
+ },
+ "236318140": {
+  "arxiv": "2107.10922",
+  "title": "Did the Cat Drink the Coffee? Challenging Transformers with Generalized Event Knowledge",
+  "year": 2021
+ },
+ "236459913": {
+  "arxiv": null,
+  "title": "Automatic ICD Coding via Interactive Shared Representation Networks with Self-distillation Mechanism",
+  "year": 2021
+ },
+ "236459933": {
+  "arxiv": null,
+  "title": "Rethinking Stealthiness of Backdoor Attack against NLP Models",
+  "year": 2021
+ },
+ "236460018": {
+  "arxiv": null,
+  "title": "Towards Table-to-Text Generation with Numerical Reasoning",
+  "year": 2021
+ },
+ "236460056": {
+  "arxiv": null,
+  "title": "Hierarchy-aware Label Semantics Matching Network for Hierarchical Text Classification",
+  "year": 2021
+ },
+ "236460157": {
+  "arxiv": null,
+  "title": "Stance Detection in COVID-19 Tweets",
+  "year": 2021
+ },
+ "236460184": {
+  "arxiv": null,
+  "title": "Multimodal Sentiment Detection Based on Multi-channel Graph Neural Networks",
+  "year": 2021
+ },
+ "236460230": {
+  "arxiv": null,
+  "title": "SemEval-2021 Task 5: Toxic Spans Detection",
+  "year": 2021
+ },
+ "236460287": {
+  "arxiv": null,
+  "title": "Bootstrapped Unsupervised Sentence Representation Learning",
+  "year": 2021
+ },
+ "236460293": {
+  "arxiv": null,
+  "title": "Discriminative Reranking for Neural Machine Translation",
+  "year": 2021
+ },
+ "236477370": {
+  "arxiv": "2109.02071",
+  "title": "End-to-End Self-Debiasing Framework for Robust NLU Training",
+  "year": 2021
+ },
+ "236477430": {
+  "arxiv": null,
+  "title": "Keep the Primary, Rewrite the Secondary: A Two-Stage Approach for Paraphrase Generation",
+  "year": 2021
+ },
+ "236477489": {
+  "arxiv": null,
+  "title": "Incorporating Global Information in Local Attention for Knowledge Representation Learning",
+  "year": 2021
+ },
+ "236477655": {
+  "arxiv": "2112.09925",
+  "title": "Word Graph Guided Summarization for Radiology Findings",
+  "year": 2021
+ },
+ "236477874": {
+  "arxiv": null,
+  "title": "Scaling Within Document Coreference to Long Texts",
+  "year": 2021
+ },
+ "236477909": {
+  "arxiv": null,
+  "title": "P-Stance: A Large Dataset for Stance Detection in Political Domain",
+  "year": 2021
+ },
+ "236478070": {
+  "arxiv": null,
+  "title": "Using Social and Linguistic Information to Adapt Pretrained Representations for Political Perspective Identification",
+  "year": 2021
+ },
+ "236478113": {
+  "arxiv": null,
+  "title": "Grammar-Based Patches Generation for Automated Program Repair",
+  "year": 2021
+ },
+ "236478283": {
+  "arxiv": "2109.10540",
+  "title": "Awakening Latent Grounding from Pretrained Language Models for Semantic Parsing",
+  "year": 2021
+ },
+ "236478307": {
+  "arxiv": null,
+  "title": "Are Rotten Apples Edible? Challenging Commonsense Inference Ability with Exceptions",
+  "year": 2021
+ },
+ "236486131": {
+  "arxiv": "2108.00308",
+  "title": "Human Evaluation of Creative NLG Systems: An Interdisciplinary Survey on Recent Papers",
+  "year": 2021
+ },
+ "236486171": {
+  "arxiv": null,
+  "title": "SU-NLP at CASE 2021 Task 1: Protest News Detection for English",
+  "year": 2021
+ },
+ "236486314": {
+  "arxiv": null,
+  "title": "UnImplicit Shared Task Report: Detecting Clarification Requirements in Instructional Text",
+  "year": 2021
+ },
+ "237353321": {
+  "arxiv": "2108.12472",
+  "title": "ReGen: Reinforcement Learning for Text and Knowledge Base Generation using Pretrained Language Models",
+  "year": 2021
+ },
+ "237363853": {
+  "arxiv": "2108.13654",
+  "title": "Discretized Integrated Gradients for Explaining Language Models",
+  "year": 2021
+ },
+ "237372185": {
+  "arxiv": "2109.00412",
+  "title": "Improving Multimodal Fusion with Hierarchical Mutual Information Maximization for Multimodal Sentiment Analysis",
+  "year": 2021
+ },
+ "237386541": {
+  "arxiv": "2109.00859",
+  "title": "CodeT5: Identifier-aware Unified Pre-trained Encoder-Decoder Models for Code Understanding and Generation",
+  "year": 2021
+ },
+ "237420821": {
+  "arxiv": "2109.02363",
+  "title": "From Alignment to Assignment: Frustratingly Simple Unsupervised Entity Alignment",
+  "year": 2021
+ },
+ "237442211": {
+  "arxiv": "2109.03659",
+  "title": "Label Verbalization and Entailment for Effective Zero and Few-Shot Relation Extraction",
+  "year": 2021
+ },
+ "237452236": {
+  "arxiv": "2109.04332",
+  "title": "PPT: Pre-trained Prompt Tuning for Few-shot Learning",
+  "year": 2021
+ },
+ "237453212": {
+  "arxiv": "2109.04321",
+  "title": "Smoothed Contrastive Learning for Unsupervised Sentence Embedding",
+  "year": 2021
+ },
+ "237454564": {
+  "arxiv": "2109.04101",
+  "title": "TimeTraveler: Reinforcement Learning for Temporal Knowledge Graph Forecasting",
+  "year": 2021
+ },
+ "237485334": {
+  "arxiv": "2109.04712",
+  "title": "Balancing Methods for Multi-label Text Classification with Long-Tailed Class Distribution",
+  "year": 2021
+ },
+ "237490383": {
+  "arxiv": "2109.06074",
+  "title": "On Language Models for Creoles",
+  "year": 2021
+ },
+ "237492043": {
+  "arxiv": "2109.05473",
+  "title": "Exploring Task Difficulty for Few-Shot Relation Extraction",
+  "year": 2021
+ },
+ "237497416": {
+  "arxiv": "2012.14541",
+  "title": "YASO: A Targeted Sentiment Analysis Evaluation Dataset for Open-Domain Reviews",
+  "year": 2020
+ },
+ "237507028": {
+  "arxiv": "2109.06379",
+  "title": "Compression, Transduction, and Creation: A Unified Framework for Evaluating Natural Language Generation",
+  "year": 2021
+ },
+ "237513596": {
+  "arxiv": "2109.07293",
+  "title": "Unsupervised Keyphrase Extraction by Jointly Modeling Local and Global Context",
+  "year": 2021
+ },
+ "237532398": {
+  "arxiv": "2109.07994",
+  "title": "KnowMAN: Weakly Supervised Multinomial Adversarial Networks",
+  "year": 2021
+ },
+ "237568724": {
+  "arxiv": "2104.08758",
+  "title": "Documenting Large Webtext Corpora: A Case Study on the Colossal Clean Crawled Corpus",
+  "year": 2021
+ },
+ "237571370": {
+  "arxiv": "2109.08877",
+  "title": "DuRecDial 2.0: A Bilingual Parallel Corpus for Conversational Recommendation",
+  "year": 2021
+ },
+ "237572264": {
+  "arxiv": "2109.09115",
+  "title": "Do Long-Range Language Models Actually Use Long-Range Context?",
+  "year": 2021
+ },
+ "237581068": {
+  "arxiv": "2104.08253",
+  "title": "Condenser: a Pre-training Architecture for Dense Retrieval",
+  "year": 2021
+ },
+ "237581476": {
+  "arxiv": "2109.10126",
+  "title": "ConvFiT: Conversational Fine-Tuning of Pretrained Language Models",
+  "year": 2021
+ },
+ "237592852": {
+  "arxiv": "2106.08433",
+  "title": "Combining Lexical and Dense Retrieval for Computationally Efficient Multi-hop Question Answering",
+  "year": 2021
+ },
+ "237593027": {
+  "arxiv": "2109.10441",
+  "title": "Evaluating Debiasing Techniques for Intersectional Biases",
+  "year": 2021
+ },
+ "238198752": {
+  "arxiv": "2012.04780",
+  "title": "Open Knowledge Graphs Canonicalization using Variational Autoencoders",
+  "year": 2020
+ },
+ "238259938": {
+  "arxiv": "2110.00796",
+  "title": "Aspect Sentiment Quad Prediction as Paraphrase Generation",
+  "year": 2021
+ },
+ "238634705": {
+  "arxiv": "2110.05699",
+  "title": "On Releasing Annotator-Level Labels and Information in Datasets",
+  "year": 2021
+ },
+ "238634750": {
+  "arxiv": "2110.05719",
+  "title": "Dealing with Disagreements: Looking Beyond the Majority Vote in Subjective Annotations",
+  "year": 2021
+ },
+ "238856828": {
+  "arxiv": "2110.07205",
+  "title": "SpeechT5: Unified-Modal Encoder-Decoder Pre-Training for Spoken Language Processing",
+  "year": 2021
+ },
+ "238856938": {
+  "arxiv": "2110.07596",
+  "title": "Retrieval-guided Counterfactual Generation for QA",
+  "year": 2021
+ },
+ "238857301": {
+  "arxiv": "2110.07577",
+  "title": "UniPELT: A Unified Framework for Parameter-Efficient Language Model Tuning",
+  "year": 2021
+ },
+ "239009871": {
+  "arxiv": "2110.07640",
+  "title": "Sparks: Inspiration for Science Writing using Language Models",
+  "year": 2021
+ },
+ "239010011": {
+  "arxiv": "2110.08193",
+  "title": "BBQ: A hand-built bias benchmark for question answering",
+  "year": 2021
+ },
+ "239885913": {
+  "arxiv": "2110.13495",
+  "title": "Assessing the Sufficiency of Arguments through Conclusion Generation",
+  "year": 2021
+ },
+ "240288892": {
+  "arxiv": "2110.15621",
+  "title": "MentalBERT: Publicly Available Pretrained Language Models for Mental Healthcare",
+  "year": 2021
+ },
+ "241033259": {
+  "arxiv": "2111.01998",
+  "title": "OpenPrompt: An Open-source Framework for Prompt-learning",
+  "year": 2021
+ },
+ "241583548": {
+  "arxiv": null,
+  "title": "Explainable Unsupervised Argument Similarity Rating with Abstract Meaning Representation and Conclusion Generation",
+  "year": 2021
+ },
+ "243865296": {
+  "arxiv": null,
+  "title": "Cross-lingual Aspect-based Sentiment Analysis with Aspect Term Code-Switching",
+  "year": 2021
+ },
+ "243865395": {
+  "arxiv": null,
+  "title": "Cross Attention Augmented Transducer Networks for Simultaneous Translation",
+  "year": 2021
+ },
+ "244117167": {
+  "arxiv": "2111.07997",
+  "title": "Annotators with Attitudes: How Annotator Beliefs And Identities Bias Toxic Language Detection",
+  "year": 2021
+ },
+ "244270388": {
+  "arxiv": "2111.08940",
+  "title": "Transparent Human Evaluation for Image Captioning",
+  "year": 2021
+ },
+ "244345901": {
+  "arxiv": "2111.09525",
+  "title": "SummaC: Re-Visiting NLI-based Models for Inconsistency Detection in Summarization",
+  "year": 2021
+ },
+ "244799249": {
+  "arxiv": "2112.01488",
+  "title": "ColBERTv2: Effective and Efficient Retrieval via Lightweight Late Interaction",
+  "year": 2021
+ },
+ "244954670": {
+  "arxiv": "2112.04195",
+  "title": "VIRT: Improving Representation-based Text Matching via Virtual Interaction",
+  "year": 2021
+ },
+ "245123965": {
+  "arxiv": "2112.06837",
+  "title": "Sparse Interventions in Language Models with Differentiable Masking",
+  "year": 2021
+ },
+ "245130931": {
+  "arxiv": "2112.01640",
+  "title": "Two Contrasting Data Annotation Paradigms for Subjective NLP Tasks",
+  "year": 2021
+ },
+ "245144839": {
+  "arxiv": "2112.08340",
+  "title": "GenIE: Generative Information Extraction",
+  "year": 2021
+ },
+ "245855878": {
+  "arxiv": null,
+  "title": "A Fine-Grained Analysis of BERTScore",
+  "year": 2021
+ },
+ "245855898": {
+  "arxiv": null,
+  "title": "PROMT Systems for WMT21 Terminology Translation Task",
+  "year": 2021
+ },
+ "246015393": {
+  "arxiv": "2201.05899",
+  "title": "Unobserved Local Structures Make Compositional Generalization Hard",
+  "year": 2022
+ },
+ "247158838": {
+  "arxiv": "2202.13257",
+  "title": "Controllable Natural Language Generation with Contrastive Prefixes",
+  "year": 2022
+ },
+ "247187518": {
+  "arxiv": "2203.00357",
+  "title": "MERIt: Meta-Path Guided Contrastive Learning for Logical Reasoning",
+  "year": 2022
+ },
+ "247223093": {
+  "arxiv": "2203.01927",
+  "title": "As Little as Possible, as Much as Necessary: Detecting Over- and Undertranslations with Contrastive Conditioning",
+  "year": 2022
+ },
+ "247315559": {
+  "arxiv": "2203.03850",
+  "title": "UniXcoder: Unified Cross-Modal Pre-training for Code Representation",
+  "year": 2022
+ },
+ "247362971": {
+  "arxiv": "2007.03875",
+  "title": "KQA Pro: A Dataset with Explicit Compositional Programs for Complex Question Answering over Knowledge Base",
+  "year": 2020
+ },
+ "247411350": {
+  "arxiv": "2203.05797",
+  "title": "Long Time No See! Open-Domain Conversation with Long-Term Persona Memory",
+  "year": 2022
+ },
+ "247451284": {
+  "arxiv": "2110.08018",
+  "title": "Structural Characterization for Dialogue Disentanglement",
+  "year": 2021
+ },
+ "247476252": {
+  "arxiv": "2203.08500",
+  "title": "HeterMPC: A Heterogeneous Graph Neural Network for Response Generation in Multi-Party Conversations",
+  "year": 2022
+ },
+ "247519241": {
+  "arxiv": "2103.10360",
+  "title": "GLM: General Language Model Pretraining with Autoregressive Blank Infilling",
+  "year": 2021
+ },
+ "247593812": {
+  "arxiv": "2203.10282",
+  "title": "Clickbait Spoiling via Question Answering and Passage Retrieval",
+  "year": 2022
+ },
+ "247628083": {
+  "arxiv": "2203.13209",
+  "title": "Direct parsing to sentiment graphs",
+  "year": 2022
+ },
+ "247748640": {
+  "arxiv": "2203.13560",
+  "title": "MISC: A Mixed Strategy-Aware Model integrating COMET for Emotional Support Conversation",
+  "year": 2022
+ },
+ "247922354": {
+  "arxiv": "2204.00408",
+  "title": "Structured Pruning Learns Compact and Accurate Models",
+  "year": 2022
+ },
+ "247939641": {
+  "arxiv": "2204.00885",
+  "title": "Inverse is Better! Fast and Accurate Prompt for Few-shot Slot Tagging",
+  "year": 2022
+ },
+ "247958464": {
+  "arxiv": "2108.09619",
+  "title": "Impact of Evaluation Methodologies on Code Summarization",
+  "year": 2021
+ },
+ "248118561": {
+  "arxiv": "2204.05991",
+  "title": "ReCLIP: A Strong Zero-Shot Baseline for Referring Expression Comprehension",
+  "year": 2022
+ },
+ "248299679": {
+  "arxiv": "2204.10298",
+  "title": "DiffCSE: Difference-based Contrastive Learning for Sentence Embeddings",
+  "year": 2022
+ },
+ "248496439": {
+  "arxiv": "2205.00656",
+  "title": "Debiased Contrastive Learning of Unsupervised Sentence Representations",
+  "year": 2022
+ },
+ "248512463": {
+  "arxiv": "2205.02023",
+  "title": "Same Neurons, Different Languages: Probing Morphosyntax in Multilingual Pre-trained Models",
+  "year": 2022
+ },
+ "248512647": {
+  "arxiv": "2205.01966",
+  "title": "Non-Autoregressive Machine Translation: It’s Not as Fast as it Seems",
+  "year": 2022
+ },
+ "248524998": {
+  "arxiv": "2205.02455",
+  "title": "COGMEN: COntextualized GNN based Multimodal Emotion recognitioN",
+  "year": 2022
+ },
+ "248693452": {
+  "arxiv": "2205.05124",
+  "title": "Extracting Latent Steering Vectors from Pretrained Language Models",
+  "year": 2022
+ },
+ "248721770": {
+  "arxiv": "2205.06266",
+  "title": "Lifting the Curse of Multilinguality by Pre-training Modular Transformers",
+  "year": 2022
+ },
+ "248779910": {
+  "arxiv": null,
+  "title": "Rare and Zero-shot Word Sense Disambiguation using Z-Reweighting",
+  "year": 2022
+ },
+ "248779939": {
+  "arxiv": null,
+  "title": "Learn and Review: Enhancing Continual Named Entity Recognition via Reviewing Synthetic Samples",
+  "year": 2022
+ },
+ "248780177": {
+  "arxiv": null,
+  "title": "P-Tuning: Prompt Tuning Can Be Comparable to Fine-tuning Across Scales and Tasks",
+  "year": 2022
+ },
+ "248780437": {
+  "arxiv": null,
+  "title": "Simple Semantic-based Data Augmentation for Named Entity Recognition in Biomedical Texts",
+  "year": 2022
+ },
+ "248780440": {
+  "arxiv": null,
+  "title": "Auto-Debias: Debiasing Masked Language Models with Automated Biased Prompts",
+  "year": 2022
+ },
+ "248780467": {
+  "arxiv": null,
+  "title": "Interactive Latent Knowledge Selection for E-Commerce Product Copywriting Generation",
+  "year": 2022
+ },
+ "248780527": {
+  "arxiv": null,
+  "title": "ParaDetox: Detoxification with Parallel Data",
+  "year": 2022
+ },
+ "249062579": {
+  "arxiv": "2205.12854",
+  "title": "Understanding Factual Errors in Summarization: Errors, Summarizers, Datasets, Error Detectors",
+  "year": 2022
+ },
+ "249062748": {
+  "arxiv": "2205.12443",
+  "title": "Generating Natural Language Proofs with Verifier-Guided Search",
+  "year": 2022
+ },
+ "249062918": {
+  "arxiv": "2205.12689",
+  "title": "Large language models are few-shot clinical information extractors",
+  "year": 2022
+ },
+ "249151979": {
+  "arxiv": "2205.13858",
+  "title": "Semeval-2022 Task 1: CODWOE – Comparing Dictionaries and Word Embeddings",
+  "year": 2022
+ },
+ "249431866": {
+  "arxiv": "2206.03428",
+  "title": "Revealing Single Frame Bias for Video-and-Language Learning",
+  "year": 2022
+ },
+ "250390500": {
+  "arxiv": null,
+  "title": "AcTune: Uncertainty-Based Active Self-Training for Active Fine-Tuning of Pretrained Language Models",
+  "year": 2022
+ },
+ "250390607": {
+  "arxiv": null,
+  "title": "SemEval-2022 Task 4: Patronizing and Condescending Language Detection",
+  "year": 2022
+ },
+ "250390720": {
+  "arxiv": "2309.12102",
+  "title": "SemEval-2022 Task 7: Identifying Plausible Clarifications of Implicit and Underspecified Phrases in Instructional Texts",
+  "year": 2023
+ },
+ "250390946": {
+  "arxiv": null,
+  "title": "Knowledge Transfer between Structured and Unstructured Sources for Complex Question Answering",
+  "year": 2022
+ },
+ "250390995": {
+  "arxiv": "2306.17290",
+  "title": "Towards Open-Domain Topic Classification",
+  "year": 2023
+ },
+ "250391089": {
+  "arxiv": null,
+  "title": "SemEval-2022 Task 6: iSarcasmEval, Intended Sarcasm Detection in English and Arabic",
+  "year": 2022
+ },
+ "251320513": {
+  "arxiv": "2208.02814",
+  "title": "Conformal Risk Control",
+  "year": 2022
+ },
+ "251710245": {
+  "arxiv": "2208.09137",
+  "title": "GreenKGC: A Lightweight Knowledge Graph Completion Method",
+  "year": 2022
+ },
+ "251741028": {
+  "arxiv": "2208.10734",
+  "title": "Learning Dynamic Contextualised Word Embeddings via Template-based Temporal Adaptation",
+  "year": 2022
+ },
+ "251903643": {
+  "arxiv": "2208.13423",
+  "title": "StoryTrans: Non-Parallel Story Author-Style Transfer with Discourse Representations and Content Enhancing",
+  "year": 2022
+ },
+ "252199533": {
+  "arxiv": "2209.04830",
+  "title": "Detecting Suicide Risk in Online Counseling Services: A Study in a Low-Resource Language",
+  "year": 2022
+ },
+ "252280753": {
+  "arxiv": null,
+  "title": "Cold-Start Data Selection for Better Few-shot Language Model Fine-tuning: A Prompt-based Uncertainty Propagation Approach",
+  "year": 2023
+ },
+ "252519660": {
+  "arxiv": "2209.11486",
+  "title": "MetaPrompting: Learning to Learn Better Prompts",
+  "year": 2022
+ },
+ "252780822": {
+  "arxiv": "2210.03980",
+  "title": "Distilling Causal Effect from Miscellaneous Other-Class for Continual Named Entity Recognition",
+  "year": 2022
+ },
+ "252815403": {
+  "arxiv": "2210.05039",
+  "title": "Contrastive Video-Language Learning with Fine-grained Frame Sampling",
+  "year": 2022
+ },
+ "252816010": {
+  "arxiv": "2210.04982",
+  "title": "REV: Information-Theoretic Evaluation of Free-Text Rationales",
+  "year": 2022
+ },
+ "252818918": {
+  "arxiv": null,
+  "title": "Dialo-AP: A Dependency Parsing Based Argument Parser for Dialogues",
+  "year": 2022
+ },
+ "252819095": {
+  "arxiv": null,
+  "title": "MuCDN: Mutual Conversational Detachment Network for Emotion Recognition in Multi-Party Conversations",
+  "year": 2022
+ },
+ "252846763": {
+  "arxiv": "2210.06331",
+  "title": "RedHOT: A Corpus of Annotated Medical Questions, Experiences, and Claims on Social Media",
+  "year": 2022
+ },
+ "252847559": {
+  "arxiv": "2103.07011",
+  "title": "Towards Socially Intelligent Agents with Mental State Transition and Human Value",
+  "year": 2021
+ },
+ "252873073": {
+  "arxiv": "2210.06828",
+  "title": "Rethinking Annotation: Can Language Learners Contribute?",
+  "year": 2022
+ },
+ "252873117": {
+  "arxiv": "2210.07197",
+  "title": "Towards a Unified Multi-Dimensional Evaluator for Text Generation",
+  "year": 2022
+ },
+ "252907578": {
+  "arxiv": "2210.07586",
+  "title": "Automatic Creation of Named Entity Recognition Datasets by Querying Phrase Representations",
+  "year": 2022
+ },
+ "252918792": {
+  "arxiv": "2210.08855",
+  "title": "PeerDA: Data Augmentation via Modeling Peer Relation for Span Identification Tasks",
+  "year": 2022
+ },
+ "253098395": {
+  "arxiv": "2210.12330",
+  "title": "Salience Allocation as Guidance for Abstractive Summarization",
+  "year": 2022
+ },
+ "253098758": {
+  "arxiv": "2210.12187",
+  "title": "Syntactic Surprisal From Neural Models Predicts, But Underestimates, Human Processing Difficulty From Syntactic Ambiguities",
+  "year": 2022
+ },
+ "253237701": {
+  "arxiv": "2210.17432",
+  "title": "SSD-LM: Semi-autoregressive Simplex-based Diffusion Language Model for Text Generation and Modular Control",
+  "year": 2022
+ },
+ "253420743": {
+  "arxiv": "2211.04486",
+  "title": "Active Example Selection for In-Context Learning",
+  "year": 2022
+ },
+ "253523259": {
+  "arxiv": "2211.08402",
+  "title": "Introducing Semantics into Speech Encoders",
+  "year": 2022
+ },
+ "253581399": {
+  "arxiv": "2211.09761",
+  "title": "Efficient Transformers with Dynamic Token Pooling",
+  "year": 2022
+ },
+ "253734400": {
+  "arxiv": "2211.11297",
+  "title": "In-sample Curriculum Learning by Sequence Completion for Natural Language Generation",
+  "year": 2022
+ },
+ "253734483": {
+  "arxiv": "2211.11300",
+  "title": "Multi-Level Knowledge Distillation for Out-of-Distribution Detection in Text",
+  "year": 2022
+ },
+ "254044147": {
+  "arxiv": "2211.15029",
+  "title": "DiffusionBERT: Improving Generative Masked Language Models with Diffusion Models",
+  "year": 2022
+ },
+ "254096489": {
+  "arxiv": "2211.17257",
+  "title": "CREPE: Open-Domain Question Answering with False Presuppositions",
+  "year": 2022
+ },
+ "254591475": {
+  "arxiv": "2212.06801",
+  "title": "A fine-grained comparison of pragmatic language understanding in humans and language models",
+  "year": 2022
+ },
+ "254685574": {
+  "arxiv": "2212.07850",
+  "title": "Attention as a Guide for Simultaneous Speech Translation",
+  "year": 2022
+ },
+ "254685611": {
+  "arxiv": "2212.07981",
+  "title": "Revisiting the Gold Standard: Grounding Summarization Evaluation with Robust Human Evaluation",
+  "year": 2022
+ },
+ "254685691": {
+  "arxiv": "2212.07672",
+  "title": "Summary-Oriented Vision Modeling for Multimodal Abstractive Summarization",
+  "year": 2022
+ },
+ "254823170": {
+  "arxiv": "2212.08597",
+  "title": "Detecting and Mitigating Hallucinations in Machine Translation: Model Internal Workings Alone Do Well, Sentence Similarity Even Better",
+  "year": 2022
+ },
+ "254853929": {
+  "arxiv": "2212.09736",
+  "title": "Don’t Generate, Discriminate: A Proposal for Grounding Language Models to Real-World Environments",
+  "year": 2022
+ },
+ "254853990": {
+  "arxiv": "2212.09683",
+  "title": "Human-in-the-loop Evaluation for Early Misinformation Detection: A Case Study of COVID-19 Treatments",
+  "year": 2022
+ },
+ "254854340": {
+  "arxiv": "2212.09180",
+  "title": "Don’t Forget Your ABC’s: Evaluating the State-of-the-Art in Chat-Oriented Dialogue Systems",
+  "year": 2022
+ },
+ "254854514": {
+  "arxiv": "2212.09359",
+  "title": "WACO: Word-Aligned Contrastive Learning for Speech Translation",
+  "year": 2022
+ },
+ "254877039": {
+  "arxiv": "2212.10534",
+  "title": "DISCO: Distilling Counterfactuals with Large Language Models",
+  "year": 2022
+ },
+ "254877165": {
+  "arxiv": "2212.10545",
+  "title": "DimonGen: Diversified Generative Commonsense Reasoning for Explaining Concept Relationships",
+  "year": 2022
+ },
+ "254877175": {
+  "arxiv": "2212.10535",
+  "title": "A Survey of Deep Learning for Mathematical Reasoning",
+  "year": 2022
+ },
+ "254877323": {
+  "arxiv": "2212.10020",
+  "title": "On the Blind Spots of Model-Based Evaluation Metrics for Text Generation",
+  "year": 2022
+ },
+ "254877347": {
+  "arxiv": "2212.10018",
+  "title": "DIONYSUS: A Pre-trained Model for Low-Resource Dialogue Summarization",
+  "year": 2022
+ },
+ "254877406": {
+  "arxiv": "2212.10474",
+  "title": "ByGPT5: End-to-End Style-conditioned Poetry Generation with Token-free Language Models",
+  "year": 2022
+ },
+ "254877569": {
+  "arxiv": "2212.10001",
+  "title": "Towards Understanding Chain-of-Thought Prompting: An Empirical Study of What Matters",
+  "year": 2022
+ },
+ "255894238": {
+  "arxiv": null,
+  "title": "Data-driven Cross-lingual Syntax: An Agreement Study with Massively Multilingual Models",
+  "year": 2023
+ },
+ "256461055": {
+  "arxiv": "2112.04195",
+  "title": "VIRT: Improving Representation-based Text Matching via Virtual Interaction",
+  "year": 2021
+ },
+ "256868814": {
+  "arxiv": "2302.07778",
+  "title": "Measuring the Instability of Fine-Tuning",
+  "year": 2023
+ },
+ "256900985": {
+  "arxiv": "2302.08143",
+  "title": "Learning to Initialize: Can Meta Learning Improve Cross-task Generalization in Prompt Tuning?",
+  "year": 2023
+ },
+ "256901172": {
+  "arxiv": "2302.07974",
+  "title": "Tree-Based Representation and Generation of Natural and Mathematical Language",
+  "year": 2023
+ },
+ "257687205": {
+  "arxiv": "2303.13372",
+  "title": "DRSM: De-Randomized Smoothing on Malware Classifier Providing Certified Robustness",
+  "year": 2023
+ },
+ "257766959": {
+  "arxiv": "2303.14897",
+  "title": "Seer: Language Instructed Video Prediction with Latent Diffusion Models",
+  "year": 2023
+ },
+ "258041281": {
+  "arxiv": "2304.03768",
+  "title": "SparseFormer: Sparse Visual Recognition via Limited Latent Tokens",
+  "year": 2023
+ },
+ "258179794": {
+  "arxiv": "2304.08216",
+  "title": "Context-Dependent Embedding Utterance Representations for Emotion Recognition in Conversations",
+  "year": 2023
+ },
+ "258436686": {
+  "arxiv": "2305.01528",
+  "title": "FIREBALL: A Dataset of Dungeons and Dragons Actual-Play with Structured Game State Information",
+  "year": 2023
+ },
+ "258436868": {
+  "arxiv": "2305.01645",
+  "title": "Distill or Annotate? Cost-Efficient Fine-Tuning of Compact Models",
+  "year": 2023
+ },
+ "258436870": {
+  "arxiv": "2305.01639",
+  "title": "Privacy-Preserving In-Context Learning for Large Language Models",
+  "year": 2023
+ },
+ "258461036": {
+  "arxiv": "2305.01788",
+  "title": "Vision Meets Definitions: Unsupervised Visual Word Sense Disambiguation Incorporating Gloss Information",
+  "year": 2023
+ },
+ "258461053": {
+  "arxiv": "2305.01812",
+  "title": "Post-Abstention: Towards Reliably Re-Attempting the Abstained Instances in QA",
+  "year": 2023
+ },
+ "258461287": {
+  "arxiv": "2305.01937",
+  "title": "Can Large Language Models Be an Alternative to Human Evaluations?",
+  "year": 2023
+ },
+ "258461336": {
+  "arxiv": "2305.02031",
+  "title": "A Systematic Study of Knowledge Distillation for Natural Language Generation with Pseudo-Target Training",
+  "year": 2023
+ },
+ "258480014": {
+  "arxiv": "2305.03040",
+  "title": "TUVF: Learning Generalizable Texture UV Radiance Fields",
+  "year": 2023
+ },
+ "258480238": {
+  "arxiv": "2305.02364",
+  "title": "PeaCoK: Persona Commonsense Knowledge for Consistent and Engaging Narratives",
+  "year": 2023
+ },
+ "258546855": {
+  "arxiv": "2305.03655",
+  "title": "White-Box Multi-Objective Adversarial Attack on Dialogue Generation",
+  "year": 2023
+ },
+ "258546861": {
+  "arxiv": "2305.03130",
+  "title": "Chain-of-Skills: A Configurable Model for Open-Domain Question Answering",
+  "year": 2023
+ },
+ "258546862": {
+  "arxiv": "2305.03117",
+  "title": "Are Human Explanations Always Helpful? Towards Objective Evaluation of Human Natural Language Explanations",
+  "year": 2023
+ },
+ "258547050": {
+  "arxiv": "2305.03088",
+  "title": "Modeling What-to-ask and How-to-ask for Answer-unaware Conversational Question Generation",
+  "year": 2023
+ },
+ "258557119": {
+  "arxiv": "2305.04446",
+  "title": "Facilitating Fine-grained Detection of Chinese Toxic Language: Hierarchical Taxonomy, Resources, and Benchmarks",
+  "year": 2023
+ },
+ "258557131": {
+  "arxiv": "2305.04573",
+  "title": "HiFi: High-Information Attention Heads Hold for Parameter-Efficient Model Adaptation",
+  "year": 2023
+ },
+ "258557145": {
+  "arxiv": "2305.04808",
+  "title": "CAT: A Contextualized Conceptualization and Instantiation Framework for Commonsense Reasoning",
+  "year": 2023
+ },
+ "258557186": {
+  "arxiv": "2305.04087",
+  "title": "Self-Edit: Fault-Aware Code Editor for Code Generation",
+  "year": 2023
+ },
+ "258557362": {
+  "arxiv": "2212.09420",
+  "title": "Large Language Models Meet NL2Code: A Survey",
+  "year": 2022
+ },
+ "258557740": {
+  "arxiv": "2305.04582",
+  "title": "MultiTACRED: A Multilingual Version of the TAC Relation Extraction Dataset",
+  "year": 2023
+ },
+ "258557751": {
+  "arxiv": "2305.04320",
+  "title": "Unified Demonstration Retriever for In-Context Learning",
+  "year": 2023
+ },
+ "258588286": {
+  "arxiv": "2305.05940",
+  "title": "Multilingual LLMs are Better Cross-lingual In-context Learners with Alignment",
+  "year": 2023
+ },
+ "258588364": {
+  "arxiv": "2305.06154",
+  "title": "Alleviating Over-smoothing for Unsupervised Sentence Representation",
+  "year": 2023
+ },
+ "258615193": {
+  "arxiv": "2305.06984",
+  "title": "Evaluating Open-Domain Question Answering in the Era of Large Language Models",
+  "year": 2023
+ },
+ "258685538": {
+  "arxiv": "2305.08195",
+  "title": "Learning to Simulate Natural Language Feedback for Interactive Semantic Parsing",
+  "year": 2023
+ },
+ "258685798": {
+  "arxiv": "2305.08596",
+  "title": "DarkBERT: A Language Model for the Dark Side of the Internet",
+  "year": 2023
+ },
+ "258714602": {
+  "arxiv": "2305.09509",
+  "title": "Bidirectional Generative Framework for Cross-domain Aspect-based Sentiment Analysis",
+  "year": 2023
+ },
+ "258715048": {
+  "arxiv": "2305.09137",
+  "title": "Pre-Training to Learn in Context",
+  "year": 2023
+ },
+ "258715255": {
+  "arxiv": "2305.09148",
+  "title": "Dual-Alignment Pre-training for Cross-lingual Sentence Embedding",
+  "year": 2023
+ },
+ "258740758": {
+  "arxiv": "2305.10156",
+  "title": "Personality Understanding of Fictional Characters during Book Reading",
+  "year": 2023
+ },
+ "258741298": {
+  "arxiv": "2305.09955",
+  "title": "Knowledge Card: Filling LLMs' Knowledge Gaps with Plug-in Specialized Language Models",
+  "year": 2023
+ },
+ "258762633": {
+  "arxiv": "2305.11161",
+  "title": "TOME: A Two-stage Approach for Model-based Retrieval",
+  "year": 2023
+ },
+ "258822815": {
+  "arxiv": "2305.11694",
+  "title": "QUEST: A Retrieval Dataset of Entity-Seeking Queries with Implicit Set Operations",
+  "year": 2023
+ },
+ "258832427": {
+  "arxiv": "2305.12182",
+  "title": "Glot500: Scaling Multilingual Corpora and Language Models to 500 Languages",
+  "year": 2023
+ },
+ "258832501": {
+  "arxiv": "2305.12723",
+  "title": "Enhancing Small Medical Learners with Privacy-preserving Contextual Prompting",
+  "year": 2023
+ },
+ "258832605": {
+  "arxiv": "2305.12140",
+  "title": "Movie101: A New Movie Understanding Benchmark",
+  "year": 2023
+ },
+ "258832652": {
+  "arxiv": "2305.12535",
+  "title": "Explaining How Transformers Use Context to Build Predictions",
+  "year": 2023
+ },
+ "258832670": {
+  "arxiv": "2305.13077",
+  "title": "ControlVideo: Training-free Controllable Text-to-Video Generation",
+  "year": 2023
+ },
+ "258832820": {
+  "arxiv": "2305.13282",
+  "title": "Is Fine-tuning Needed? Pre-trained Language Models Are Near Perfect for Out-of-Domain Detection",
+  "year": 2023
+ },
+ "258832833": {
+  "arxiv": "2305.12228",
+  "title": "Dynamic Transformers Provide a False Sense of Efficiency",
+  "year": 2023
+ },
+ "258832883": {
+  "arxiv": "2305.12876",
+  "title": "Gloss-Free End-to-End Sign Language Translation",
+  "year": 2023
+ },
+ "258833194": {
+  "arxiv": "2305.12792",
+  "title": "Semantic Structure Enhanced Event Causality Identification",
+  "year": 2023
+ },
+ "258833648": {
+  "arxiv": "2305.12129",
+  "title": "Lifting the Curse of Capacity Gap in Distilling Language Models",
+  "year": 2023
+ },
+ "258833682": {
+  "arxiv": "2305.12118",
+  "title": "Annealing Self-Distillation Rectification Improves Adversarial Training",
+  "year": 2023
+ },
+ "258841145": {
+  "arxiv": "2305.13412",
+  "title": "Element-aware Summarization with Large Language Models: Expert-aligned Evaluation and Chain-of-Thought Method",
+  "year": 2023
+ },
+ "258865260": {
+  "arxiv": "2205.12505",
+  "title": "GENEVA: Benchmarking Generalizability for Event Argument Extraction with Hundreds of Event Types and Argument Roles",
+  "year": 2022
+ },
+ "258865444": {
+  "arxiv": "2305.14779",
+  "title": "Alt-Text with Context: Improving Accessibility for Images on Twitter",
+  "year": 2023
+ },
+ "258866035": {
+  "arxiv": "2305.14635",
+  "title": "CMOT: Cross-modal Mixup via Optimal Transport for Speech Translation",
+  "year": 2023
+ },
+ "258887491": {
+  "arxiv": "2305.15718",
+  "title": "Towards Higher Pareto Frontier in Multilingual Machine Translation",
+  "year": 2023
+ },
+ "258887582": {
+  "arxiv": "2305.16174",
+  "title": "From Latent Graph to Latent Topology Inference: Differentiable Cell Complex Module",
+  "year": 2023
+ },
+ "258887622": {
+  "arxiv": "2305.15678",
+  "title": "Revisiting non-English Text Simplification: A Unified Multilingual Benchmark",
+  "year": 2023
+ },
+ "258887719": {
+  "arxiv": "2305.15933",
+  "title": "A Survey on Asking Clarification Questions Datasets in Conversational Systems",
+  "year": 2023
+ },
+ "258887946": {
+  "arxiv": "2305.15645",
+  "title": "ConvGQR: Generative Query Reformulation for Conversational Search",
+  "year": 2023
+ },
+ "258947156": {
+  "arxiv": "2305.16852",
+  "title": "Model-Based Simulation for Optimising Smart Reply",
+  "year": 2023
+ },
+ "258947268": {
+  "arxiv": "2305.16816",
+  "title": "Songs Across Borders: Singable and Controllable Neural Lyric Translation",
+  "year": 2023
+ },
+ "258947273": {
+  "arxiv": "2305.16739",
+  "title": "AlignScore: Evaluating Factual Consistency with A Unified Alignment Function",
+  "year": 2023
+ },
+ "258947336": {
+  "arxiv": "2305.17008",
+  "title": "NormBank: A Knowledge Bank of Situational Social Norms",
+  "year": 2023
+ },
+ "258947572": {
+  "arxiv": "2305.16742",
+  "title": "Parameter-Efficient Fine-Tuning without Introducing New Latency",
+  "year": 2023
+ },
+ "258947664": {
+  "arxiv": "2305.16444",
+  "title": "Don’t Retrain, Just Rewrite: Countering Adversarial Perturbations by Rewriting Text",
+  "year": 2023
+ },
+ "258947837": {
+  "arxiv": "2211.16550",
+  "title": "Soft Alignment Objectives for Robust Adaptation of Language Generation",
+  "year": 2022
+ },
+ "258947845": {
+  "arxiv": "2112.08804",
+  "title": "CrossSum: Beyond English-Centric Cross-Lingual Summarization for 1,500+ Language Pairs",
+  "year": 2021
+ },
+ "258959081": {
+  "arxiv": "2210.07621",
+  "title": "Dense-ATOMIC: Towards Densely-connected ATOMIC with High Knowledge Coverage and Massive Multi-hop Paths",
+  "year": 2022
+ },
+ "258959097": {
+  "arxiv": "2305.17626",
+  "title": "In-Context Analogical Reasoning with Pre-Trained Language Models",
+  "year": 2023
+ },
+ "258959116": {
+  "arxiv": "2305.17388",
+  "title": "MPCHAT: Towards Multimodal Persona-Grounded Conversation",
+  "year": 2023
+ },
+ "258959201": {
+  "arxiv": "2305.17491",
+  "title": "FERMAT: An Alternative to Accuracy for Numerical Reasoning",
+  "year": 2023
+ },
+ "258959382": {
+  "arxiv": "2305.17530",
+  "title": "PuMer: Pruning and Merging Tokens for Efficient Vision Language Models",
+  "year": 2023
+ },
+ "258960101": {
+  "arxiv": "2305.17359",
+  "title": "DNA-GPT: Divergent N-Gram Analysis for Training-Free Detection of GPT-Generated Text",
+  "year": 2023
+ },
+ "258960136": {
+  "arxiv": "2305.17415",
+  "title": "Exploring Better Text Image Translation with Multimodal Codebook",
+  "year": 2023
+ },
+ "258960423": {
+  "arxiv": "2305.17696",
+  "title": "SQuARe: A Large-Scale Dataset of Sensitive Questions and Acceptable Responses Created through Human-Machine Collaboration",
+  "year": 2023
+ },
+ "258960443": {
+  "arxiv": "2305.17444",
+  "title": "Query-Efficient Black-Box Red Teaming via Bayesian Optimization",
+  "year": 2023
+ },
+ "258960642": {
+  "arxiv": "2305.17682",
+  "title": "One Network, Many Masks: Towards More Parameter-Efficient Transfer Learning",
+  "year": 2023
+ },
+ "258967312": {
+  "arxiv": "2305.19204",
+  "title": "SWiPE: A Dataset for Document-Level Simplification of Wikipedia Pages",
+  "year": 2023
+ },
+ "258967524": {
+  "arxiv": "2305.18721",
+  "title": "LayoutMask: Enhance Text-Layout Interaction in Multi-modal Pre-training for Document Understanding",
+  "year": 2023
+ },
+ "258971765": {
+  "arxiv": null,
+  "title": "PAED: Zero-Shot Persona Attribute Extraction in Dialogues",
+  "year": 2023
+ },
+ "258987457": {
+  "arxiv": "2212.10060",
+  "title": "I Cast Detect Thoughts: Learning to Converse and Guide with Intents and Theory-of-Mind in Dungeons and Dragons",
+  "year": 2022
+ },
+ "258988004": {
+  "arxiv": "2305.19330",
+  "title": "Breeding Machine Translations: Evolutionary approach to survive and thrive in the world of automated evaluation",
+  "year": 2023
+ },
+ "258999673": {
+  "arxiv": "2306.00947",
+  "title": "EEL: Efficiently Encoding Lattices for Reranking",
+  "year": 2023
+ },
+ "259063796": {
+  "arxiv": "2306.01150",
+  "title": "Did You Read the Instructions? Rethinking the Effectiveness of Task Definitions in Instruction Learning",
+  "year": 2023
+ },
+ "259063887": {
+  "arxiv": "2306.01735",
+  "title": "Multilingual Conceptual Coverage in Text-to-Image Models",
+  "year": 2023
+ },
+ "259075246": {
+  "arxiv": "2306.03091",
+  "title": "RepoBench: Benchmarking Repository-Level Code Auto-Completion Systems",
+  "year": 2023
+ },
+ "259075344": {
+  "arxiv": "2306.02282",
+  "title": "Exploring and Verbalizing Academic Ideas by Concept Co-occurrence",
+  "year": 2023
+ },
+ "259075515": {
+  "arxiv": "2306.02052",
+  "title": "Conflicts, Villains, Resolutions: Towards models of Narrative Media Framing",
+  "year": 2023
+ },
+ "259076194": {
+  "arxiv": "2306.02840",
+  "title": "Learning to Substitute Spans towards Improving Compositional Generalization",
+  "year": 2023
+ },
+ "259089125": {
+  "arxiv": "2306.01707",
+  "title": "Learning Multi-Step Reasoning by Solving Arithmetic Tasks",
+  "year": 2023
+ },
+ "259093058": {
+  "arxiv": null,
+  "title": "Factual or Contextual? Disentangling Error Types in Entity Description Generation",
+  "year": 2023
+ },
+ "259095910": {
+  "arxiv": null,
+  "title": "Knowledge-Augmented Language Model Prompting for Zero-Shot Knowledge Graph Question Answering",
+  "year": 2023
+ },
+ "259108266": {
+  "arxiv": "2306.05087",
+  "title": "PandaLM: An Automatic Evaluation Benchmark for LLM Instruction Tuning Optimization",
+  "year": 2023
+ },
+ "259108565": {
+  "arxiv": "2306.04891",
+  "title": "In-Context Learning through the Bayesian Prism",
+  "year": 2023
+ },
+ "259108646": {
+  "arxiv": "2306.05423",
+  "title": "ADDP: Learning General Representations for Image Recognition and Generation with Alternating Denoising Diffusion Process",
+  "year": 2023
+ },
+ "259108831": {
+  "arxiv": "2306.05406",
+  "title": "Mixture-of-Domain-Adapters: Decoupling and Injecting Domain Knowledge to Pre-trained Language Models’ Memories",
+  "year": 2023
+ },
+ "259129912": {
+  "arxiv": "2305.01904",
+  "title": "Robust Multi-bit Natural Language Watermarking through Invariant Features",
+  "year": 2023
+ },
+ "259137386": {
+  "arxiv": "2306.06872",
+  "title": "History Semantic Graph Enhanced Conversational KBQA with Temporal Information Modeling",
+  "year": 2023
+ },
+ "259137817": {
+  "arxiv": "2306.06410",
+  "title": "OpenSR: Open-Modality Speech Recognition via Maintaining Multi-Modality Alignment",
+  "year": 2023
+ },
+ "259138479": {
+  "arxiv": "2306.06472",
+  "title": "Modeling Structural Similarities between Documents for Coherence Assessment with Graph Convolutional Networks",
+  "year": 2023
+ },
+ "259138821": {
+  "arxiv": "2306.06545",
+  "title": "A Probabilistic Framework for Modular Continual Learning",
+  "year": 2023
+ },
+ "259165134": {
+  "arxiv": "2306.08350",
+  "title": "Multi-target Backdoor Attacks for Code Pre-trained Models",
+  "year": 2023
+ },
+ "259165262": {
+  "arxiv": "2306.08386",
+  "title": "Efficient Backdoor Attacks for Deep Neural Networks in Real-world Scenarios",
+  "year": 2023
+ },
+ "259165546": {
+  "arxiv": "2306.08685",
+  "title": "World-to-Words: Grounded Open Vocabulary Acquisition through Fast Mapping in Vision-Language Models",
+  "year": 2023
+ },
+ "259203115": {
+  "arxiv": "2306.11695",
+  "title": "A Simple and Effective Pruning Approach for Large Language Models",
+  "year": 2023
+ },
+ "259203213": {
+  "arxiv": "2306.10790",
+  "title": "Preserving Commonsense Knowledge from Pre-trained Language Models via Causal Inference",
+  "year": 2023
+ },
+ "259203325": {
+  "arxiv": "2306.11670",
+  "title": "GIO: Gradient Information Optimization for Training Dataset Selection",
+  "year": 2023
+ },
+ "259203396": {
+  "arxiv": "2306.10567",
+  "title": "MIR-GAN: Refining Frame-Level Modality-Invariant Representations with Adversarial Network for Audio-Visual Speech Recognition",
+  "year": 2023
+ },
+ "259203682": {
+  "arxiv": "2306.11485",
+  "title": "Explicit Syntactic Guidance for Neural Text Generation",
+  "year": 2023
+ },
+ "259262427": {
+  "arxiv": "2306.15164",
+  "title": "DSRM: Boost Textual Adversarial Training with Distribution Shift Risk Minimization",
+  "year": 2023
+ },
+ "259286910": {
+  "arxiv": "2306.16770",
+  "title": "DialoGPS: Dialogue Path Sampling in Continuous Semantic Space for Data Augmentation in Multi-Turn Conversations",
+  "year": 2023
+ },
+ "259287121": {
+  "arxiv": "2306.16688",
+  "title": "SRL: Scaling Distributed Reinforcement Learning to Over Ten Thousand Cores",
+  "year": 2023
+ },
+ "259342096": {
+  "arxiv": "2305.14705",
+  "title": "Mixture-of-Experts Meets Instruction Tuning: A Winning Combination for Large Language Models",
+  "year": 2023
+ },
+ "259342823": {
+  "arxiv": "2307.02047",
+  "title": "CAME: Confidence-guided Adaptive Memory Efficient Optimization",
+  "year": 2023
+ },
+ "259360414": {
+  "arxiv": "2307.02763",
+  "title": "Your spouse needs professional help: Determining the Contextual Appropriateness of Messages through Modeling Social Relationships",
+  "year": 2023
+ },
+ "259360601": {
+  "arxiv": "2307.02884",
+  "title": "Sample-Efficient Learning of POMDPs with Multiple Observations In Hindsight",
+  "year": 2023
+ },
+ "259370520": {
+  "arxiv": "2307.04401",
+  "title": "ETHICIST: Targeted Training Data Extraction Through Loss Smoothed Soft Prompting and Calibrated Confidence Estimation",
+  "year": 2023
+ },
+ "259370532": {
+  "arxiv": null,
+  "title": "On-the-fly Cross-lingual Masking for Multilingual Pre-training",
+  "year": 2023
+ },
+ "259370539": {
+  "arxiv": "2309.08156",
+  "title": "RADE: Reference-Assisted Dialogue Evaluation for Open-Domain Dialogue",
+  "year": 2023
+ },
+ "259370562": {
+  "arxiv": null,
+  "title": "A New Direction in Stance Detection: Target-Stance Extraction in the Wild",
+  "year": 2023
+ },
+ "259370577": {
+  "arxiv": null,
+  "title": "Neural Machine Translation Methods for Translating Text to Sign Language Glosses",
+  "year": 2023
+ },
+ "259370579": {
+  "arxiv": null,
+  "title": "Evaluate AMR Graph Similarity via Self-supervised Learning",
+  "year": 2023
+ },
+ "259370588": {
+  "arxiv": "2307.04018",
+  "title": "Revisiting Cross-Lingual Summarization: A Corpus-based Study and A New Benchmark with Improved Annotation",
+  "year": 2023
+ },
+ "259370596": {
+  "arxiv": null,
+  "title": "Large-Scale Correlation Analysis of Automated Metrics for Topic Models",
+  "year": 2023
+ },
+ "259370602": {
+  "arxiv": null,
+  "title": "Peer-Label Assisted Hierarchical Text Classification",
+  "year": 2023
+ },
+ "259370630": {
+  "arxiv": null,
+  "title": "Open-ended Long Text Generation via Masked Language Modeling",
+  "year": 2023
+ },
+ "259370636": {
+  "arxiv": null,
+  "title": "UPPAM: A Unified Pre-training Architecture for Political Actor Modeling based on Language",
+  "year": 2023
+ },
+ "259370644": {
+  "arxiv": "2307.03897",
+  "title": "Answering Ambiguous Questions via Iterative Prompting",
+  "year": 2023
+ },
+ "259370653": {
+  "arxiv": null,
+  "title": "A Novel Table-to-Graph Generation Approach for Document-Level Joint Entity and Relation Extraction",
+  "year": 2023
+ },
+ "259370656": {
+  "arxiv": null,
+  "title": "Dual Class Knowledge Propagation Network for Multi-label Few-shot Intent Detection",
+  "year": 2023
+ },
+ "259370666": {
+  "arxiv": null,
+  "title": "MAD-TSC: A Multilingual Aligned News Dataset for Target-dependent Sentiment Classification",
+  "year": 2023
+ },
+ "259370693": {
+  "arxiv": null,
+  "title": "StoryARG: a corpus of narratives and personal experiences in argumentative texts",
+  "year": 2023
+ },
+ "259370694": {
+  "arxiv": null,
+  "title": "Generating User-Engaging News Headlines",
+  "year": 2023
+ },
+ "259370699": {
+  "arxiv": null,
+  "title": "Holistic Prediction on a Time-Evolving Attributed Graph",
+  "year": 2023
+ },
+ "259370710": {
+  "arxiv": null,
+  "title": "SIMMC-VR: A Task-oriented Multimodal Dialog Dataset with Situated and Immersive VR Streams",
+  "year": 2023
+ },
+ "259370722": {
+  "arxiv": "2305.19228",
+  "title": "Unsupervised Melody-to-Lyrics Generation",
+  "year": 2023
+ },
+ "259370741": {
+  "arxiv": null,
+  "title": "AtTGen: Attribute Tree Generation for Real-World Attribute Joint Extraction",
+  "year": 2023
+ },
+ "259370752": {
+  "arxiv": null,
+  "title": "Hybrid Uncertainty Quantification for Selective Text Classification in Ambiguous Tasks",
+  "year": 2023
+ },
+ "259370776": {
+  "arxiv": "2307.07380",
+  "title": "Composition-contrastive Learning for Sentence Embeddings",
+  "year": 2023
+ },
+ "259370780": {
+  "arxiv": null,
+  "title": "FiD-ICL: A Fusion-in-Decoder Approach for Efficient In-Context Learning",
+  "year": 2023
+ },
+ "259370785": {
+  "arxiv": null,
+  "title": "Test-time Adaptation for Machine Translation Evaluation by Uncertainty Minimization",
+  "year": 2023
+ },
+ "259370787": {
+  "arxiv": null,
+  "title": "Local Interpretation of Transformer Based on Linear Decomposition",
+  "year": 2023
+ },
+ "259370790": {
+  "arxiv": null,
+  "title": "A Facial Expression-Aware Multimodal Multi-task Learning Framework for Emotion Recognition in Multi-party Conversations",
+  "year": 2023
+ },
+ "259370799": {
+  "arxiv": null,
+  "title": "TemplateGEC: Improving Grammatical Error Correction with Detection Template",
+  "year": 2023
+ },
+ "259370800": {
+  "arxiv": null,
+  "title": "Cross-Domain Data Augmentation with Domain-Adaptive Language Modeling for Aspect-Based Sentiment Analysis",
+  "year": 2023
+ },
+ "259370815": {
+  "arxiv": "2307.08290",
+  "title": "CoAD: Automatic Diagnosis through Symptom and Disease Collaborative Generation",
+  "year": 2023
+ },
+ "259370817": {
+  "arxiv": null,
+  "title": "Rehearsal-free Continual Language Learning via Efficient Parameter Isolation",
+  "year": 2023
+ },
+ "259370833": {
+  "arxiv": "2305.17746",
+  "title": "WhitenedCSE: Whitening-based Contrastive Learning of Sentence Embeddings",
+  "year": 2023
+ },
+ "259370836": {
+  "arxiv": null,
+  "title": "DIP: Dead code Insertion based Black-box Attack for Programming Language Model",
+  "year": 2023
+ },
+ "259370854": {
+  "arxiv": null,
+  "title": "What does a Text Classifier Learn about Morality? An Explainable Method for Cross-Domain Comparison of Moral Rhetoric",
+  "year": 2023
+ },
+ "259370867": {
+  "arxiv": null,
+  "title": "We Understand Elliptical Sentences, and Language Models should Too: A New Dataset for Studying Ellipsis and its Interaction with Thematic Fit",
+  "year": 2023
+ },
+ "259370879": {
+  "arxiv": null,
+  "title": "RMLM: A Flexible Defense Framework for Proactively Mitigating Word-level Adversarial Attacks",
+  "year": 2023
+ },
+ "259375870": {
+  "arxiv": "2307.03381",
+  "title": "Teaching Arithmetic to Small Transformers",
+  "year": 2023
+ },
+ "259376566": {
+  "arxiv": null,
+  "title": "Evaluating Reading Comprehension Exercises Generated by LLMs: A Showcase of ChatGPT in Education Applications",
+  "year": 2023
+ },
+ "259376639": {
+  "arxiv": null,
+  "title": "SemEval-2023 Task 5: Clickbait Spoiling",
+  "year": 2023
+ },
+ "259833781": {
+  "arxiv": null,
+  "title": "Knowledge Graph-augmented Language Models for Complex Question Answering",
+  "year": 2023
+ },
+ "259924554": {
+  "arxiv": "2307.07176",
+  "title": "SafeDreamer: Safe Reinforcement Learning with World Models",
+  "year": 2023
+ },
+ "260063238": {
+  "arxiv": "2306.04136",
+  "title": "Knowledge-Augmented Language Model Prompting for Zero-Shot Knowledge Graph Question Answering",
+  "year": 2023
+ },
+ "260125817": {
+  "arxiv": "2307.12851",
+  "title": "Early Neuron Alignment in Two-layer ReLU Networks with Small Initialization",
+  "year": 2023
+ },
+ "260154786": {
+  "arxiv": "2307.13372",
+  "title": "Submodular Reinforcement Learning",
+  "year": 2023
+ },
+ "260164542": {
+  "arxiv": "2307.13883",
+  "title": "ExeDec: Execution Decomposition for Compositional Generalization in Neural Program Synthesis",
+  "year": 2023
+ },
+ "260316137": {
+  "arxiv": "2307.15196",
+  "title": "The Marginal Value of Momentum for Small Learning Rate SGD",
+  "year": 2023
+ },
+ "260378993": {
+  "arxiv": "2308.00951",
+  "title": "From Sparse to Soft Mixtures of Experts",
+  "year": 2023
+ },
+ "260683028": {
+  "arxiv": "2308.02585",
+  "title": "PARL: A Unified Framework for Policy Alignment in Reinforcement Learning from Human Feedback",
+  "year": 2023
+ },
+ "260886874": {
+  "arxiv": "2308.07124",
+  "title": "OctoPack: Instruction Tuning Code Large Language Models",
+  "year": 2023
+ },
+ "260887189": {
+  "arxiv": "2308.06463",
+  "title": "GPT-4 Is Too Smart To Be Safe: Stealthy Chat with LLMs via Cipher",
+  "year": 2023
+ },
+ "261076339": {
+  "arxiv": "2308.11951",
+  "title": "Pose Modulated Avatars from Video",
+  "year": 2023
+ },
+ "261276856": {
+  "arxiv": "2308.15321",
+  "title": "Elucidating the Exposure Bias in Diffusion Models",
+  "year": 2023
+ },
+ "261530996": {
+  "arxiv": "2309.01753",
+  "title": "On Penalty Methods for Nonconvex Bilevel Optimization and First-Order Stochastic Approximation",
+  "year": 2023
+ },
+ "261582259": {
+  "arxiv": "2309.03350",
+  "title": "Relay Diffusion: Unifying diffusion process across resolutions for image synthesis",
+  "year": 2023
+ },
+ "261682321": {
+  "arxiv": "2309.04669",
+  "title": "Unified Language-Vision Pretraining in LLM with Dynamic Discrete Visual Tokenization",
+  "year": 2023
+ },
+ "261696697": {
+  "arxiv": "2309.05653",
+  "title": "MAmmoTH: Building Math Generalist Models through Hybrid Instruction Tuning",
+  "year": 2023
+ },
+ "262013288": {
+  "arxiv": "2309.08351",
+  "title": "Headless Language Models: Learning without Predicting with Contrastive Weight Tying",
+  "year": 2023
+ },
+ "262054014": {
+  "arxiv": "2309.10105",
+  "title": "Understanding Catastrophic Forgetting in Language Models via Implicit Inference",
+  "year": 2023
+ },
+ "262828485": {
+  "arxiv": "2309.14396",
+  "title": "Guess & Sketch: Language Model Guided Transpilation",
+  "year": 2023
+ },
+ "262944419": {
+  "arxiv": "2309.15817",
+  "title": "Identifying the Risks of LM Agents with an LM-Emulated Sandbox",
+  "year": 2023
+ },
+ "263152829": {
+  "arxiv": "2309.15840",
+  "title": "How to Catch an AI Liar: Lie Detection in Black-Box LLMs by Asking Unrelated Questions",
+  "year": 2023
+ },
+ "263334074": {
+  "arxiv": "2310.00656",
+  "title": "LEGO-Prover: Neural Theorem Proving with Growing Libraries",
+  "year": 2023
+ },
+ "263334587": {
+  "arxiv": "2310.00311",
+  "title": "Efficient Planning with Latent Diffusion",
+  "year": 2023
+ },
+ "263334596": {
+  "arxiv": "2310.00115",
+  "title": "Learning Over Molecular Conformer Ensembles: Datasets and Benchmarks",
+  "year": 2023
+ },
+ "263605851": {
+  "arxiv": "2310.01361",
+  "title": "GenSim: Generating Robotic Simulation Tasks via Large Language Models",
+  "year": 2023
+ },
+ "263608672": {
+  "arxiv": "2310.01693",
+  "title": "Closing the Curious Case of Neural Text Degeneration",
+  "year": 2023
+ },
+ "263609164": {
+  "arxiv": "2310.01616",
+  "title": "Sample-Efficiency in Multi-Batch Reinforcement Learning: The Need for Dimension-Dependent Adaptivity",
+  "year": 2023
+ },
+ "263609239": {
+  "arxiv": "2310.02246",
+  "title": "Learning to Relax: Setting Solver Parameters Across a Sequence of Linear System Instances",
+  "year": 2023
+ },
+ "263610128": {
+  "arxiv": "2305.13300",
+  "title": "Adaptive Chameleon or Stubborn Sloth: Revealing the Behavior of Large Language Models in Knowledge Conflicts",
+  "year": 2023
+ },
+ "263620293": {
+  "arxiv": "2310.02902",
+  "title": "Searching for High-Value Molecules Using Reinforcement Learning and Transformers",
+  "year": 2023
+ },
+ "263620510": {
+  "arxiv": "2310.02556",
+  "title": "NOLA: Compressing LoRA using Linear Combination of Random Basis",
+  "year": 2023
+ },
+ "263671662": {
+  "arxiv": "2310.03054",
+  "title": "Posterior Sampling Based on Gradient Flows of the MMD with Negative Distance Kernel",
+  "year": 2023
+ },
+ "263829348": {
+  "arxiv": "2310.04948",
+  "title": "TEMPO: Prompt-based Generative Pre-trained Transformer for Time Series Forecasting",
+  "year": 2023
+ },
+ "263829780": {
+  "arxiv": "2310.04691",
+  "title": "EMO: Earth Mover Distance Optimization for Auto-Regressive Language Modeling",
+  "year": 2023
+ },
+ "263829872": {
+  "arxiv": "2310.06214",
+  "title": "CoT3DRef: Chain-of-Thoughts Data-Efficient 3D Visual Grounding",
+  "year": 2023
+ },
+ "263829977": {
+  "arxiv": "2310.04560",
+  "title": "Talk like a Graph: Encoding Graphs for Large Language Models",
+  "year": 2023
+ },
+ "263830433": {
+  "arxiv": "2310.03957",
+  "title": "Understanding prompt engineering may not require rethinking generalization",
+  "year": 2023
+ },
+ "263830786": {
+  "arxiv": "2310.06694",
+  "title": "Sheared LLaMA: Accelerating Language Model Pre-training via Structured Pruning",
+  "year": 2023
+ },
+ "263831485": {
+  "arxiv": "2310.04562",
+  "title": "Towards Foundation Models for Knowledge Graph Reasoning",
+  "year": 2023
+ },
+ "263831633": {
+  "arxiv": "2310.05910",
+  "title": "SALMON: Self-Alignment with Instructable Reward Models",
+  "year": 2023
+ },
+ "263834884": {
+  "arxiv": "2310.07641",
+  "title": "Evaluating Large Language Models at Evaluating Instruction Following",
+  "year": 2023
+ },
+ "263889455": {
+  "arxiv": "2309.04669",
+  "title": "Unified Language-Vision Pretraining in LLM with Dynamic Discrete Visual Tokenization",
+  "year": 2023
+ },
+ "263909212": {
+  "arxiv": "2310.08446",
+  "title": "Towards Robust Multi-Modal Reasoning via Model Selection",
+  "year": 2023
+ },
+ "263909278": {
+  "arxiv": "2310.08566",
+  "title": "Transformers as Decision Makers: Provable In-Context Reinforcement Learning via Supervised Pretraining",
+  "year": 2023
+ },
+ "263909429": {
+  "arxiv": "2310.08580",
+  "title": "OmniControl: Control Any Joint at Any Time for Human Motion Generation",
+  "year": 2023
+ },
+ "264128166": {
+  "arxiv": "2310.09270",
+  "title": "Retro-fallback: retrosynthetic planning in an uncertain world",
+  "year": 2023
+ },
+ "264147017": {
+  "arxiv": "2310.09753",
+  "title": "When can transformers reason with abstract symbols?",
+  "year": 2023
+ },
+ "264147054": {
+  "arxiv": "2310.10375",
+  "title": "GTA: A Geometry-Aware Attention Mechanism for Multi-View Transformers",
+  "year": 2023
+ },
+ "264172174": {
+  "arxiv": "2310.10971",
+  "title": "Context-Aware Meta-Learning",
+  "year": 2023
+ },
+ "264172668": {
+  "arxiv": "2310.11451",
+  "title": "Seeking Neural Nuggets: Knowledge Transfer in Large Language Models from a Parametric Perspective",
+  "year": 2023
+ },
+ "264172845": {
+  "arxiv": "2310.11366",
+  "title": "Lie Group Decompositions for Equivariant Neural Networks",
+  "year": 2023
+ },
+ "264172935": {
+  "arxiv": "2310.10625",
+  "title": "Video Language Planning",
+  "year": 2023
+ },
+ "264288929": {
+  "arxiv": "2310.11550",
+  "title": "Towards Optimal Regret in Adversarial Linear MDPs with Bandit Feedback",
+  "year": 2023
+ },
+ "264289064": {
+  "arxiv": "2310.11523",
+  "title": "Group Preference Optimization: Few-Shot Alignment of Large Language Models",
+  "year": 2023
+ },
+ "264306002": {
+  "arxiv": "2310.12972",
+  "title": "CCIL: Continuity-based Data Augmentation for Corrective Imitation Learning",
+  "year": 2023
+ },
+ "264306078": {
+  "arxiv": "2310.12773",
+  "title": "Safe RLHF: Safe Reinforcement Learning from Human Feedback",
+  "year": 2023
+ },
+ "264306111": {
+  "arxiv": "2310.12973",
+  "title": "Frozen Transformers in Language Models Are Effective Visual Encoder Layers",
+  "year": 2023
+ },
+ "264406064": {
+  "arxiv": "2310.13345",
+  "title": "An LLM can Fool Itself: A Prompt-Based Adversarial Attack",
+  "year": 2023
+ },
+ "264426013": {
+  "arxiv": "2310.14423",
+  "title": "A Quadratic Synchronization Rule for Distributed Deep Learning",
+  "year": 2023
+ },
+ "264426077": {
+  "arxiv": "2310.14344",
+  "title": "What’s in a Prior? Learned Proximal Networks for Inverse Problems",
+  "year": 2023
+ },
+ "264438909": {
+  "arxiv": "2310.15263",
+  "title": "One-hot Generalized Linear Model for Switching Brain State Discovery",
+  "year": 2023
+ },
+ "264439509": {
+  "arxiv": "2310.15511",
+  "title": "KITAB: Evaluating LLMs on Constraint Satisfaction for Information Retrieval",
+  "year": 2023
+ },
+ "264490587": {
+  "arxiv": "2310.17463",
+  "title": "Bayesian Neural Controlled Differential Equations for Treatment Effect Estimation",
+  "year": 2023
+ },
+ "264555202": {
+  "arxiv": "2310.17884",
+  "title": "Can LLMs Keep a Secret? Testing Privacy Implications of Language Models via Contextual Integrity Theory",
+  "year": 2023
+ },
+ "264555382": {
+  "arxiv": "2310.18274",
+  "title": "LipSim: A Provably Robust Perceptual Similarity Metric",
+  "year": 2023
+ },
+ "264802494": {
+  "arxiv": "2310.20587",
+  "title": "Unleashing the Power of Pre-trained Language Models for Offline Reinforcement Learning",
+  "year": 2023
+ },
+ "264825357": {
+  "arxiv": "2310.19809",
+  "title": "MgNO: Efficient Parameterization of Linear Operators via Multigrid",
+  "year": 2023
+ },
+ "12718048": {
+  "arxiv": null,
+  "title": null,
+  "year": null
+ },
+ "155089628": {
+  "arxiv": null,
+  "title": null,
+  "year": null
+ }
+}
