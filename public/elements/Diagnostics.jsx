@@ -25,8 +25,18 @@ function tagClass(message) {
 // Rank cell: value or a dash when that stage was not reached.
 const cell = (v) => (v === null || v === undefined ? "–" : v);
 
+// Chainlit remounts custom elements whenever the chat re-renders (status updates, button clicks, sidebar
+// refresh), which would reset useState and collapse an open panel. So the open/closed state lives on
+// `window`, keyed by props.panel_id (one per diagnostics message).
+const openPanels = (window.__diagnosticsOpen = window.__diagnosticsOpen || {});
+
 export default function Diagnostics() {
-  const [open, setOpen] = useState(false);
+  const panelId = props.panel_id;
+  const [open, setOpenState] = useState(Boolean(panelId && openPanels[panelId]));
+  const setOpen = (value) => {
+    if (panelId) openPanels[panelId] = value;
+    setOpenState(value);
+  };
   const messages = props.messages || [];
   const ranks = props.ranks || [];
   const isChat = props.mode === "chat";
@@ -37,6 +47,7 @@ export default function Diagnostics() {
   const moved = ranks.filter((r) => r.rerank_rank && r.rerank_rank !== r.initial_rank).length;
   const summary = [
     isChat ? "chat (no search)" :
+      props.mode === "analyze" ? "analyze (papers shown, no search)" :
       props.modified_query ? `query: ${props.modified_query}${queryChanged ? " (changed)" : ""}` : "no query",
     messages.length ? `${messages.length} note${messages.length === 1 ? "" : "s"}` : "no notes",
     issues ? `${issues} adjustment${issues === 1 ? "" : "s"}` : null,
@@ -111,8 +122,8 @@ export default function Diagnostics() {
                       <td className="text-right pr-2" title={`${r.search} search #${r.search_rank}, RRF ${r.rrf_score}`}>{r.initial_rank}</td>
                       <td className="text-right pr-2">{cell(r.rerank_rank)}</td>
                       <td className="text-right pr-2">{r.rerank_score === null || r.rerank_score === undefined ? "–" : r.rerank_score.toFixed(2)}</td>
-                      <td className="text-right pr-2">{r.llm_label ? `[${r.llm_label}]` : "–"}</td>
-                      <td className="text-right pr-2">{r.llm_rank ? `${r.llm_rank}${r.picked_by === "fallback" ? "*" : ""}` : "–"}</td>
+                      <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_label ? `[${r.llm_label}]` : "–"}</td>
+                      <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_rank ? `${r.llm_rank}${r.picked_by === "fallback" ? "*" : ""}` : "–"}</td>
                       <td className="text-right pr-2">{cell(r.final_rank)}</td>
                       <td className="text-right pr-2">{cell(r.year)}</td>
                       {ranks.some((x) => x.title_sim !== null && x.title_sim !== undefined) && (
@@ -125,6 +136,9 @@ export default function Diagnostics() {
               </table>
               {ranks.some((r) => r.picked_by === "fallback") && (
                 <p className="text-xs text-muted-foreground mt-1">* picked by the fallback (LLM unavailable)</p>
+              )}
+              {ranks.some((r) => r.picked_by === "skipped") && (
+                <p className="text-xs text-muted-foreground mt-1">Surveys: – = LLM ranking skipped (reranker top)</p>
               )}
             </div>
           )}

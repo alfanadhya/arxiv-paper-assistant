@@ -1,11 +1,16 @@
 # Install with:  python -m pip install -r requirements.txt
 # Versions pinned to what is currently installed and working.
 
+# Web GUI + chat history database (SQLite) - threeofus_main.py, app.py, db.py
+chainlit==2.12.0
+SQLAlchemy==2.1.8
+aiosqlite==0.22.1
+
 # LLM (Gemini 2.5 Flash via LangChain) - chat.py
 langchain-google-genai==4.4.3
 
-# Local LLM via Ollama - chat_ollama.py
-langchain-ollama
+# Local LLM via Ollama - threeofus_main.py
+langchain-ollama==1.1.0
 
 # Loads GOOGLE_API_KEY / QDRANT_URL from .env - chat.py
 python-dotenv==1.2.4

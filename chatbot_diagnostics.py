@@ -108,7 +108,7 @@ class Diagnostics:
     # Wrap up a search: the mode key (search= / title=) and the parser's notes first, context usage last.
     def finish_search(self, query: str, num_ctx: int, keyword: str = "search",
                       parser_notes: list[str] | None = None) -> None:
-        what = "Exact-title lookup" if keyword == "title" else "Search"
+        what = {"title": "Exact-title lookup", "analyze": "Question about shown papers"}.get(keyword, "Search")
         self.messages[:0] = [f"[mode] {what} requested with {keyword}= -> '{query}'."] + list(parser_notes or [])
         self.messages.extend(self.context_messages(num_ctx))
 
@@ -172,24 +172,26 @@ class Diagnostics:
                 c.llm_label = f"{prefix}{i}"
 
     # Record a reranked pool: ranks/scores, and a [rerank] note on how many were promoted into the top `keep`.
+    # to_llm=False: the pool skips the LLM (surveys), its top `keep` are shown directly.
     def note_rerank(self, pool_name: str, original: list, ranked: list, scores: list[float], keep: int,
-                    model: str) -> None:
+                    model: str, to_llm: bool = True) -> None:
         self.track_rerank(ranked, scores)
         kept_ids = {h.point_id for h in ranked[:keep]}
         promoted = sum(1 for i, h in enumerate(original) if i >= keep and h.point_id in kept_ids)
-        self.append(f"[rerank] {len(original)} {pool_name}(s) reranked with {model}; top {keep} sent to the LLM "
+        where = "sent to the LLM" if to_llm else "kept (LLM ranking skipped)"
+        self.append(f"[rerank] {len(original)} {pool_name}(s) reranked with {model}; top {keep} {where} "
                     f"({promoted} promoted from below Qdrant's top {keep}, {promoted} dropped).")
 
-    # Record picks from 1-based numbers: paper_order/survey_order in the LLM's order, top_* as displayed.
-    def record_picks(self, papers: list, surveys: list, paper_order: list[int], survey_order: list[int],
-                     top_papers: list[int], top_surveys: list[int], picked_by: str,
-                     survey_picked_by: str | None = None) -> None:
-        # Papers and surveys are ranked by separate LLM calls: each pool's pick rank starts at 1 and
-        # records its own picked_by ("llm" or "fallback"), since one pool can fall back alone.
-        survey_picked_by = survey_picked_by or picked_by
+    # Record picks from 1-based numbers: paper_order in the LLM's order, top_* as displayed. Papers record
+    # picked_by ("llm" or "fallback"); surveys never go to the LLM and are marked "skipped".
+    def record_picks(self, papers: list, surveys: list, paper_order: list[int],
+                     top_papers: list[int], top_surveys: list[int], picked_by: str) -> None:
         shown = [papers[n - 1] for n in top_papers] + [surveys[n - 1] for n in top_surveys]
-        self.track_picks([papers[n - 1] for n in paper_order], [], picked_by)
-        self.track_picks([surveys[n - 1] for n in survey_order], shown, survey_picked_by)
+        self.track_picks([papers[n - 1] for n in paper_order], shown, picked_by)
+        for h in surveys:
+            c = self.candidate(h.point_id)
+            if c:
+                c.picked_by = "skipped"
 
     # Record picks: llm_order = hits in the LLM's order, final_order = hits as displayed.
     def track_picks(self, llm_order: list, final_order: list, picked_by: str) -> None:
@@ -210,8 +212,10 @@ class Diagnostics:
         rows = []
         for pool in ("paper", "survey"):
             items = [c for c in self.candidates if c.pool == pool]
-            sent = sum(1 for c in items if c.llm_label)
-            rows += [c for c in items if c.llm_label or (sent and c.initial_rank <= sent)]
+            # kept = sent to the LLM (papers) or shown without it (surveys)
+            kept = sum(1 for c in items if c.llm_label or c.picked_by == "skipped")
+            rows += [c for c in items if c.llm_label or c.picked_by == "skipped"
+                     or (kept and c.initial_rank <= kept)]
         key = lambda c: (c.pool != "paper", c.final_rank or 99, c.llm_rank or 99, c.rerank_rank or 99)
         return sorted(rows, key=key)
 
@@ -220,8 +224,11 @@ class Diagnostics:
         lines = []
         for c in self.rank_rows():
             rerank = f"rerank {c.rerank_rank} ({c.rerank_score:.3f})" if c.rerank_rank else "rerank -"
-            sent = f"sent [{c.llm_label}]" if c.llm_label else "not sent"
-            llm = f"{c.picked_by} pick {c.llm_rank}" if c.llm_rank else "not picked"
+            if c.picked_by == "skipped":
+                sent, llm = "LLM -", "skipped"
+            else:
+                sent = f"sent [{c.llm_label}]" if c.llm_label else "not sent"
+                llm = f"{c.picked_by} pick {c.llm_rank}" if c.llm_rank else "not picked"
             shown = f"shown {c.final_rank}" if c.final_rank else "not shown"
             lines.append(f"[{c.pool}] qdrant {c.initial_rank} ({c.search} search #{c.search_rank}) -> {rerank} "
                          f"-> {sent} -> {llm} -> {shown} | {c.year or '----'} | "

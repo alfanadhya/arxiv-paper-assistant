@@ -152,7 +152,7 @@ cot = "full"
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-custom_js = "/public/custom.js?v=10"   # toast ×, fresh chat after deleting all chats, reading-list tab, sign-up link, newest-first box (bump v to bust cache)
+custom_js = "/public/custom.js?v=17"   # toast ×, fresh chat after deleting all chats, reading-list tab, sign-up link, newest-first box, mode banner (bump v to bust cache)
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"

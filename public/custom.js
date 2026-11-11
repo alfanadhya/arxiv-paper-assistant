@@ -246,6 +246,76 @@
   }, 1000);
 })();
 
+// 6. Mode banner in the middle of the top bar: the chat's remembered mode (search= / title= / analyze=).
+//    Python sends {type: "mode", mode} (app.set_mode) on a new chat, on resume and whenever a mode key is typed.
+(function () {
+  const ID = "mode-banner";
+  // Two example messages per mode (typed without the key while the mode is on)
+  const MODES = {
+    search:  { label: "Search mode",  color: "#2563eb",
+               examples: ["transformers", "generative AI for construction industry year=2020-"] },
+    title:   { label: "Title mode",   color: "#ca8a04",
+               examples: ["Attention is all you need", "Deep residual learning for image recognition"] },
+    analyze: { label: "Analyze mode", color: "#ea580c",
+               examples: ["compare 1 and 2", "which of these papers use transformers?"] },
+  };
+  let mode = null;
+
+  function render() {
+    if (location.pathname.startsWith("/login") || location.pathname.startsWith("/signup")) return;
+    const header = document.getElementById("header");
+    if (!header) return;   // top bar not rendered yet: the observer calls again
+    let banner = document.getElementById(ID);
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = ID;
+      banner.style.cssText =
+        "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:5px 16px;" +
+        "border-radius:9999px;font-size:15px;font-weight:500;color:#fff;white-space:nowrap;" +
+        "pointer-events:none;max-width:60vw;overflow:hidden;text-overflow:ellipsis;" +
+        "box-shadow:0 1px 3px rgba(0,0,0,0.2);";
+      if (getComputedStyle(header).position === "static") header.style.position = "relative";
+      header.appendChild(banner);
+    }
+    const m = MODES[mode];
+    const text = m ? `${m.label} · e.g. "${m.examples[0]}" or "${m.examples[1]}"`
+                   : "No mode yet · start with search=, title= or analyze=";
+    banner.title = text;   // full text on hover when the top bar is too narrow
+    if (banner.textContent !== text) banner.textContent = text;
+    const color = m ? m.color : "#6b7280";
+    if (banner.dataset.color !== color) { banner.dataset.color = color; banner.style.background = color; }
+  }
+
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (!data || data.type !== "mode") return;
+    mode = data.mode || null;
+    render();
+  });
+  new MutationObserver(render).observe(document.documentElement, { childList: true, subtree: true });
+  render();
+})();
+
+// 7. Green "Best match:" heading in the result summary (app.summary_md writes it as **Best match:**; messages
+//    are Markdown without HTML, so the colour is set here), and a green title on the best match's card.
+(function () {
+  const GREEN = "#16a34a";
+  // The best match's card title: its arXiv link ends in '#best' (app.paper_card)
+  const style = document.createElement("style");
+  style.textContent = `a[href$="#best"] { color: ${GREEN} !important; }`;
+  document.head.appendChild(style);
+  function colour() {
+    document.querySelectorAll("strong:not([data-best-match])").forEach((el) => {
+      if (el.textContent.trim() === "Best match:") {
+        el.setAttribute("data-best-match", "1");
+        el.style.color = GREEN;
+      }
+    });
+  }
+  new MutationObserver(colour).observe(document.documentElement, { childList: true, subtree: true });
+  colour();
+})();
+
 // 4. Login page: a "Create an account" link to /signup, and a note after a successful sign-up.
 (function () {
   function addSignupLink() {

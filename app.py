@@ -14,14 +14,10 @@ import export
 MAX_HISTORY_TURNS = 10  # question/answer pairs kept for follow-up questions
 MAX_SHOWN_PAPERS = 100  # papers kept in papers_by_id (session is saved to the DB, capped at 1 MB)
 
-WELCOME = ("Hi! Use **search=** to search the arXiv papers by topic, e.g. "
-           "*search= graph neural networks for drug discovery*, or **title=** to find one paper "
-           "by its exact title, e.g. *title= Attention is all you need*. Optional filters: **year=** "
-           "(*2021*, *2019-2022*, *2019-* or *-2020*) and **author=** (several separated by *;*), e.g. "
-           "*search= graph convolutional networks year=2017- author=Thomas Kipf*. "
-           "Anything else is a normal chat "
-           "with the model. Click **☐ Select** under a paper to add it to your reading list, then export it "
-           "as a zip (BibTeX for Zotero/Mendeley + PDFs) together with the selected chunks.")
+WELCOME = ("Hi! Type a topic to search the arXiv papers. The banner at the top shows the current mode "
+           "with examples; switch with **search=**, **title=** or **analyze=**. Optional filters: **year=** "
+           "(*2021*, *2019-2022*, *2019-* or *-2020*) and **author=** (several separated by *;*, e.g. "
+           "*author=Kipf; Welling*). Click **☐ Select** under a paper to add it to your reading list.")
 
 
 # ---------------------------------------------------------------- session state
@@ -42,14 +38,45 @@ def init_session() -> None:
     cl.user_session.set("buttons", {})        # arxiv_id -> (select Action, message id)
     cl.user_session.set("history", [])        # conversation memory for follow-ups
     cl.user_session.set("sidebar_pinned", True)   # reading-list panel pinned by default
+    cl.user_session.set("mode", "search")     # remembered mode: "search" / "title" / "analyze" (banner); new chat: search
+    cl.user_session.set("last_results", [])   # [[label, arxiv_id], ...] of the last result, for analyze=
 
 
 # After a resume, add any session keys that were not restored (keeps restored ones).
 def ensure_session() -> None:
-    for key, empty in (("reading_list", []), ("papers_by_id", {}), ("history", [])):
+    for key, empty in (("reading_list", []), ("papers_by_id", {}), ("history", []), ("last_results", [])):
         if not isinstance(cl.user_session.get(key), type(empty)):
             cl.user_session.set(key, empty)
+    if cl.user_session.get("mode") not in ("search", "title", "analyze"):
+        cl.user_session.set("mode", None)
     cl.user_session.set("buttons", {})        # Action objects are never restored
+
+
+# ---------------------------------------------------------------- mode (banner) and last results
+# Remembered mode of this chat (None until the first search= / title= / analyze=).
+def current_mode() -> str | None:
+    return cl.user_session.get("mode")
+
+
+# Remember the mode and show it in the top-bar banner (public/custom.js, section 6).
+async def set_mode(mode: str | None) -> None:
+    cl.user_session.set("mode", mode)
+    await cl.send_window_message({"type": "mode", "mode": mode})
+
+
+# Remember the labels of a result just shown (replaces the previous one), for analyze= references.
+def set_last_results(labelled_hits: list[tuple[str, object]]) -> None:
+    cl.user_session.set("last_results", [[label, hit.arxiv_id] for label, hit in labelled_hits])
+
+
+# Papers of the last result in display order, each a paper dict with its label in that result.
+def last_result_papers() -> list[dict]:
+    papers = []
+    for label, arxiv_id in cl.user_session.get("last_results") or []:
+        paper = paper_by_id(arxiv_id)
+        if paper is not None:
+            papers.append({**paper, "label": label})
+    return papers
 
 
 # ---------------------------------------------------------------- conversation memory
@@ -177,7 +204,9 @@ def open_list_button(msg_id: str | None = None) -> cl.Action:
 def paper_card(p: dict) -> str:
     authors = ", ".join(p["authors"][:3]) + (" et al." if len(p["authors"]) > 3 else "")
     why = f"_{p['why_relevant']}_\n\n" if p.get("why_relevant") else ""
-    return (f"### [{p['label']}] [{p['title']}]({p['abs_url']})\n"
+    # Only the best match has a "why"; its link gets a '#best' marker, which public/custom.js colours green
+    url = p["abs_url"] + ("#best" if p.get("why_relevant") else "")
+    return (f"### [{p['label']}] [{p['title']}]({url})\n"
             f"`{p['arxiv_id']}` · {p['year'] or 'year unknown'} · {authors}\n\n"
             f"{why}{p['abstract_snippet']}")
 
@@ -254,10 +283,18 @@ async def send_notice(text: str) -> None:
     await cl.Message(text).send()
 
 
-# Collapsible diagnostics panel (public/elements/Diagnostics.jsx) shown under the answer.
+# Diagnostics panel element for a message; a fixed id per message so a resume never shows it twice.
+def diagnostics_panel(data: dict, msg_id: str) -> cl.CustomElement:
+    return cl.CustomElement(name="Diagnostics", props={**data, "panel_id": msg_id}, display="inline",
+                            id=f"diag-{msg_id}")
+
+
+# Collapsible diagnostics panel (public/elements/Diagnostics.jsx) shown under the answer. The data is also
+# saved in the message's metadata (steps.metadata in history.db), so resume() can redraw it with the chat.
 async def send_diagnostics_panel(data: dict) -> None:
-    panel = cl.CustomElement(name="Diagnostics", props=data, display="inline")
-    await cl.Message(content="", elements=[panel], author="diagnostics").send()
+    msg = cl.Message(content="", author="diagnostics", metadata={"kind": "diagnostics", "diagnostics": data})
+    msg.elements = [diagnostics_panel(data, msg.id)]
+    await msg.send()
 
 
 # Diagnostic digest as a plain-text message (kept; the GUI now uses send_diagnostics_panel).
@@ -296,10 +333,23 @@ async def resume(thread: dict) -> None:
         elif meta.get("kind") == "summary":
             await resend(open_list_button(step["id"]), step["id"])
             has_list_button = True
+        elif meta.get("kind") == "diagnostics" and meta.get("diagnostics"):
+            # Redraw the saved diagnostics panel under its own message. Chainlit sends `thread` to the browser
+            # AFTER this resume and the browser then replaces all its elements with thread["elements"] (empty:
+            # elements are not stored), so a panel sent separately would vanish. Adding it to that list keeps it.
+            panel = diagnostics_panel(meta["diagnostics"], step["id"])
+            panel.for_id = step["id"]
+            if not isinstance(thread.get("elements"), list):
+                thread["elements"] = []
+            thread["elements"].append(panel.to_dict())
     if not has_list_button and steps:   # keep a button for the always-visible "Reading list" tab
         await resend(open_list_button(steps[0]["id"]), steps[0]["id"])
     if reading_list():
         await refresh_sidebar()
+    # A reopened chat keeps the mode it was in (the mode only changes when the user types a mode key).
+    # Default only for chats saved before modes existed: analyze if it has papers, else search.
+    mode = current_mode() or ("analyze" if cl.user_session.get("papers_by_id") else "search")
+    await set_mode(mode)
 
 
 # ---------------------------------------------------------------- reading list
