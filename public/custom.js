@@ -283,8 +283,18 @@
     banner.title = text;   // full text on hover when the top bar is too narrow
     if (banner.textContent !== text) banner.textContent = text;
     const color = m ? m.color : "#6b7280";
-    if (banner.dataset.color !== color) { banner.dataset.color = color; banner.style.background = color; }
+    if (banner.dataset.color !== color) {
+      banner.dataset.color = color;
+      banner.style.background = color;
+      document.documentElement.style.setProperty("--mode-color", color);   // message box border (below)
+    }
   }
+
+  // The box where the user types gets a border in the mode's colour
+  const style = document.createElement("style");
+  style.textContent = "#message-composer { border: 2px solid var(--mode-color, transparent); " +
+                      "transition: border-color 0.2s; }";
+  document.head.appendChild(style);
 
   window.addEventListener("message", (event) => {
     const data = event.data;

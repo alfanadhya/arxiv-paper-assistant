@@ -1,12 +1,11 @@
 """Input checks for one user message, before any model call (used by threeofus_main.run_turn).
 
-  1. keys     : parse_message finds the mode keys search= / title= / analyze= (also analyse=) and the metadata
-                keys year= / author=; each value runs to the next key. A mode key switches the chat's mode,
-                which is remembered for the next messages until another mode key is typed.
-  2. length   : length_problem checks the whole message (MAX_PROMPT_WORDS) and a title= value
-                (TITLE_MIN_WORDS..TITLE_MAX_WORDS words).
-  3. collapse : collapse_repeats turns repeated spaces and runs of the same symbol into one.
-  4. symbols  : remove_symbols keeps letters, digits and , - : . ; ? ' and turns other symbols into spaces.
+  1. length   : length_problem: the whole message as typed is at most MAX_PROMPT_WORDS words (every mode).
+  2. symbols  : on the whole message, collapse_repeats turns runs of the same symbol into one, then
+                remove_symbols keeps letters, digits and = , - : . ; ? ' & and turns other symbols into spaces.
+  3. keys     : parse_message reads the mode keys search= / title= / analyze= (also analyse=) and the metadata
+                keys year= / author= in one go; each value runs to the next key. A mode key switches the chat's
+                mode, which is remembered for the next messages until another mode key is typed.
 """
 
 import re
@@ -16,20 +15,20 @@ MESSAGE_KEY_RE = re.compile(r"(?<![\w=])(search|title|analy[sz]e|year|author)\s*
 MODES = ("search", "title", "analyze")   # mode keys; the last one used is remembered for the chat
 YEAR_VALUE_RE = re.compile(r"^\s*(\d{4})?\s*(-)?\s*(\d{4})?\s*$")
 AUTHOR_SPLIT_RE = re.compile(r";|,|&|\band\b", re.IGNORECASE)
-# Text cleaning before the spell-check LLM, in two steps:
+# Cleaning of the whole message (after the length check, before the keys are read), in two steps:
 #  1. collapse: repeated spaces to one, and a run of the same symbol to one ('...', '; ;', '???', '!!' , '//')
-#  2. symbols: keep letters, digits, spaces and , - : . ; ? ' (GPT-3.5, cs.CR, don't); curly/back-tick
-#     apostrophes become '; every other symbol becomes a space (graph/network -> graph network).
+#  2. symbols: keep letters, digits, spaces and the wanted symbols = , - : . ; ? ' & ('=' for the keys,
+#     '-' for year ranges, ';' ',' '&' between authors; GPT-3.5, cs.CR, don't); curly/back-tick apostrophes
+#     become ', en/em dashes become '-'; every other symbol becomes a space (graph/network -> graph network).
 APOSTROPHE_RE = re.compile(r"[’`´]")
-SYMBOL_RE = re.compile(r"[^\w\s,\-:.;?']|_")
+DASH_RE = re.compile(r"[–—]")
+SYMBOL_RE = re.compile(r"[^\w\s=,\-:.;?'&]|_")
 REPEATED_SYMBOL_RE = re.compile(r"([^\w\s])(?:\s*\1)+")
 SEARCH_EXAMPLE = "'search= graph neural networks for drug discovery year=2020-'"
 TITLE_EXAMPLE = "'title= Attention is all you need'"
 ANALYZE_EXAMPLE = "'analyze= compare 1 and 2'"
 MODE_EXAMPLES = {"search": SEARCH_EXAMPLE, "title": TITLE_EXAMPLE, "analyze": ANALYZE_EXAMPLE}
-MAX_PROMPT_WORDS = 200   # input filter: longer messages (incl. search=) are not processed; user asked to shorten
-TITLE_MAX_WORDS = 30     # a title= value may have at most this many words
-TITLE_MIN_WORDS = 3      # a title= value needs at least this many words, else it is skipped
+MAX_PROMPT_WORDS = 200   # first input check: longer messages are not processed; the user is asked to shorten
 
 
 # Result of the simple key parser (parse_message): mode, topic/title text and the metadata keys.
@@ -45,6 +44,12 @@ class ParsedMessage:
     year_to: int | None = None               # year=-2020 / year=2019-2022
     errors: list[str] = field(default_factory=list)    # shown to the user; nothing is run
     notes: list[str] = field(default_factory=list)     # diagnostics
+    meta_keys: list[str] = field(default_factory=list) # the year= / author= keys as typed, e.g. ['year=2019-']
+
+    # The text plus the metadata keys as typed: what the spell-check LLM sees (metadata is extracted, but
+    # not removed from the request), e.g. 'transformers after year=2026-'.
+    def with_meta(self, text: str | None = None) -> str:
+        return " ".join([text if text is not None else self.text] + self.meta_keys).strip()
 
     # One line for the diagnostics, e.g. "mode=search, text='gnn', year=2019-2022, authors=Kipf".
     def summary(self) -> str:
@@ -58,18 +63,19 @@ class ParsedMessage:
         return ", ".join(parts)
 
 
-# Step 3 of the input checks: repeated spaces -> one, a run of the same symbol -> one
-# ('...' -> '.', '; ;' -> ';', '???' -> '?', '!!' -> '!', ',,' -> ',').
+# Step 2 of the input checks (whole message): repeated spaces -> one, a run of the same symbol -> one
+# ('...' -> '.', '; ;' -> ';', '???' -> '?', '!!' -> '!', ',,' -> ',', '==' -> '=').
 def collapse_repeats(text: str) -> str:
     return " ".join(REPEATED_SYMBOL_RE.sub(r"\1", text or "").split())
 
 
-# Step 4 of the input checks: keep letters, digits and , - : . ; ? ' (curly apostrophes -> '), every other
-# symbol becomes a space; tidy spaces around commas and trim stray , - : ; at the ends.
+# Step 3 of the input checks (whole message): keep letters, digits and = , - : . ; ? ' & (curly apostrophes
+# -> ', en/em dashes -> -), every other symbol becomes a space; tidy spaces around commas and trim stray
+# , : ; at the ends ('-' is kept there: 'year=2019-' ends with it).
 def remove_symbols(text: str) -> str:
-    text = SYMBOL_RE.sub(" ", APOSTROPHE_RE.sub("'", text or ""))
+    text = SYMBOL_RE.sub(" ", DASH_RE.sub("-", APOSTROPHE_RE.sub("'", text or "")))
     text = re.sub(r"\s*,\s*", ", ", text)                 # ' , ' -> ', '
-    return " ".join(text.split()).strip(" ,:-;")
+    return " ".join(text.split()).strip(" ,:;")
 
 
 # Words that count for the length checks: tokens with at least one letter or digit ('--' or '???' don't count).
@@ -98,7 +104,10 @@ def parse_message(message: str, current_mode: str | None = None) -> ParsedMessag
     for i, m in enumerate(keys):                   # a value runs to the next key (or the end)
         end = keys[i + 1].start() if i + 1 < len(keys) else len(text)
         key = m.group(1).lower().replace("analyse", "analyze")
-        values.setdefault(key, []).append(" ".join(text[m.end():end].split()).strip(" ,;"))
+        value = " ".join(text[m.end():end].split()).strip(" ,;")
+        values.setdefault(key, []).append(value)
+        if key in ("year", "author") and value:
+            p.meta_keys.append(f"{key}={value}")
 
     modes = [k for k in MODES if k in values]
     if len(modes) > 1 or (modes and len(values[modes[0]]) > 1):
@@ -148,25 +157,17 @@ def parse_message(message: str, current_mode: str | None = None) -> ParsedMessag
                 p.authors.append(n)
     if p.mode == "analyze" and (p.authors or years):
         p.notes.append("[query] year=/author= are ignored with analyze= (it only uses papers already shown).")
-        p.authors, p.year, p.year_from, p.year_to = [], None, None, None
+        p.authors, p.year, p.year_from, p.year_to, p.meta_keys = [], None, None, None, []
     return p
 
 
-# Step 2 of the input checks: lengths, on the text as typed (only words with a letter/digit count).
-# Returns (user message, diagnostic line) if a limit is broken, else None.
-def length_problem(message: str, parsed: ParsedMessage) -> tuple[str, str] | None:
-    n_message, n_text = count_words(message), count_words(parsed.text)
+# Step 1 of the input checks, before anything else: the whole message as typed is at most MAX_PROMPT_WORDS
+# words (only words with a letter/digit count). Same limit for every mode. Returns (user message, diagnostic
+# line) if it is too long, else None.
+def length_problem(message: str) -> tuple[str, str] | None:
+    n_message = count_words(message)
     if n_message > MAX_PROMPT_WORDS:
         return (f"Your message has {n_message} words; please shorten it to at most {MAX_PROMPT_WORDS} words "
                 "and send it again.",
                 f"[validation] FAILED: message has {n_message} words (limit {MAX_PROMPT_WORDS}) -> not processed.")
-    if parsed.mode == "title" and n_text > TITLE_MAX_WORDS:
-        return (f"A title can have at most {TITLE_MAX_WORDS} words; yours has {n_text}. Please shorten it to "
-                "the paper's title, or use search= to search by topic.",
-                f"[validation] FAILED: title has {n_text} words, more than {TITLE_MAX_WORDS} -> lookup skipped.")
-    if parsed.mode == "title" and n_text < TITLE_MIN_WORDS:
-        return (f"A title search needs the full paper title (at least {TITLE_MIN_WORDS} words); "
-                f"'{parsed.text}' has {n_text}. Type the complete title, or use 'search= {parsed.text}' "
-                "to search by topic.",
-                f"[validation] FAILED: title has {n_text} word(s), fewer than {TITLE_MIN_WORDS} -> lookup skipped.")
     return None
