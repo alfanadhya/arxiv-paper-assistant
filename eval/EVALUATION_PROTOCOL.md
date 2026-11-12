@@ -55,7 +55,7 @@ Four separate targets (§5). Each metric states its **list stage, unit, cutoff, 
 
 | ID | Metric | List stage | Cutoff | Numerator / denominator | Evaluator |
 |---|---|---|---|---|---|
-| **R1** | **Recall@5** (headline) | Final `papers` shown | 5 | Relevant papers in the top 5 / all known relevant papers (§14) | Rule |
+| **R1** | **Recall@shown** (headline) | Everything shown: ≤3 LLM-picked papers + ≤5 surveys, each paper once | ≤8 | Relevant papers shown / all known relevant papers (§14). Also reported for the papers alone (`recall_papers`, ≤3) | Rule |
 | R2 | Candidate recall@20 | Qdrant output, before reranking | 20 | Same as R1 (§14) | Rule |
 | R3 | Precision@5 | Final `papers` | 5 | Relevant papers in the top 5 / 5 returned positions (§15) | Rule |
 | R4 | MRR | Final `papers` | 5 | Mean of 1 / rank of the first relevant paper; 0 if none (§16) | Rule |
@@ -105,7 +105,7 @@ A supported claim can still be wrong if the source paper is wrong (§20).
 
 ## 5. The claim we test (§3, §4, §33)
 
-> **H1:** On the held-out **test** split, Recall@5 (R1) ≥ 60%.
+> **H1:** On the held-out **test** split, Recall@shown (R1) ≥ 60%. A case passes when every target is shown (`ls_specific` cases mostly have one target).
 > **H2:** On the held-out test split, citation precision (C2) ≥ 60%.
 
 Each result is reported with its **count (k/n)** and a **95% Wilson interval** (§33). With n = 60, proving "≥ 60%" needs **44/60 (73%)** observed passes. With n = 40, the interval is about ±15 points, so we report the estimate and interval instead of overclaiming. We also state that the population is "LitSearch-style NLP/ML literature queries plus our diagnostic cases", not all users (§33).
@@ -306,6 +306,8 @@ Export format for RAGAS (§54): `user_input` = `request.query`, `retrieved_conte
 - [x] LitSearch cases built: `cases/litsearch-v1.jsonl` (40 cases: 12 dev / 28 test).
 - [x] Diagnostic cases re-anchored to the full corpus (2026-11-11). All IDs verified against the 1,104,538 indexed papers; `relevance_rule` added for large topics. **Awaiting teammate review.**
 - [ ] Decide how deployment changes the index (e.g. quantization), and evaluate that deployed configuration.
-- [ ] Get the backend code that produces the diagnostics trace (needed for the batch runner and R6).
-- [ ] Confirm the gate's score, and how sufficiency is decided, in the backend.
+- [x] Backend trace code received (RAG-part merge, 2026-11-12). Runner `eval/run_eval.py` and scorer `eval/score.py` written; see `eval/RUNNING.md`.
+- [ ] **Gate:** search mode has no gate score. It abstains only when nothing is found, so G2 is not applicable, and `no_evidence`/`adversarial` cases are expected to fail A5. G1 uses "answered = papers shown".
+- [ ] **H2 / C1–C4:** search mode writes no cited summary, only the picked papers plus `why_best`/`criteria`. Decide whether attribution is audited on that text or only in `analyze=` mode.
+- [ ] **Input:** years and authors are read only from `year=`/`author=` keys. The runner's default `--input keyed` adds them from the case scope; `--input plain` measures natural-language requests without keys.
 - [ ] Teammate review of this protocol, then freeze v1.0 **before** the first run.
