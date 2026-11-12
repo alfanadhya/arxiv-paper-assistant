@@ -13,7 +13,7 @@ Writes into the run folder (overwriting only its own earlier score files):
 Metric definitions (evaluator version "score v1"; unit = arXiv paper without version suffix, counted once per list):
     R1 recall_shown       relevant papers among everything shown (<=3 papers + <=5 surveys) / all known relevant
     R1p recall_papers     same, research papers shown only (<=3)
-    R2 candidate_recall   relevant papers in either Qdrant list (topic + survey search, 20 each) / all known relevant
+    R2 candidate_recall   relevant papers in either Qdrant list (one search of 20 per call; an author retry or each agent search adds one) / all known relevant
     R3 precision_shown    relevant papers shown / papers shown (rule-based cases use the relevance rule)
     R4 rr                 1 / rank of the first relevant paper in the shown list; 0 if none
     R5 ndcg_at_10         reranked list (both pools merged by reranker score), binary gain, ideal over the judged pool

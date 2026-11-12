@@ -1,6 +1,7 @@
 // Collapsible diagnostic digest shown under each answer.
 // `props` comes from Python (chatbot_diagnostics.Diagnostics.to_dict() -> app.send_diagnostics_panel):
 //   { original_prompt, rewritten_prompt, modified_query, mode, messages: [str], ranks: [CandidateRank] }
+// mode "agent": ranks are grouped by search (pool = "#1", "#2", ...; search = the agent's query).
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Stethoscope } from "lucide-react";
 
@@ -14,6 +15,9 @@ const TAG_STYLES = {
   "[memory]": "text-teal-600",
   "[selection]": "text-slate-500",
   "[context]": "text-cyan-700",
+  "[agent]": "text-violet-600",
+  "[scope]": "text-amber-600",
+  "[query]": "text-slate-500",
 };
 
 function tagClass(message) {
@@ -40,6 +44,8 @@ export default function Diagnostics() {
   const messages = props.messages || [];
   const ranks = props.ranks || [];
   const isChat = props.mode === "chat";
+  const isAgent = props.mode === "agent";   // tool-calling answer: one rank-trace block per search
+  const searches = isAgent ? new Set(ranks.map((r) => r.pool)).size : 0;
   const issues = messages.filter((m) => /FAILED|FALLBACK|failed|Dropped|ADJUSTED/.test(m)).length;
   const norm = (s) => (s || "").trim().toLowerCase().split(/\s+/).join(" ");
   const queryChanged = Boolean(props.rewritten_prompt) ||
@@ -47,6 +53,8 @@ export default function Diagnostics() {
   const moved = ranks.filter((r) => r.rerank_rank && r.rerank_rank !== r.initial_rank).length;
   const summary = [
     isChat ? "chat (no search)" :
+      isAgent ? (searches ? `agent: ${searches} search${searches === 1 ? "" : "es"} · ${props.modified_query}` :
+                 "agent (no search)") :
       props.mode === "analyze" ? "analyze (papers shown, no search)" :
       props.modified_query ? `query: ${props.modified_query}${queryChanged ? " (changed)" : ""}` : "no query",
     messages.length ? `${messages.length} note${messages.length === 1 ? "" : "s"}` : "no notes",
@@ -71,14 +79,14 @@ export default function Diagnostics() {
         <div className="border-t px-3 py-2 space-y-3">
           <table className="text-xs">
             <tbody>
-              <tr><td className="pr-3 text-muted-foreground">Mode</td><td>{isChat ? "chat with the LLM" : "database search"}</td></tr>
+              <tr><td className="pr-3 text-muted-foreground">Mode</td><td>{isChat ? "chat with the LLM" : isAgent ? "agent (the LLM searches with tools)" : "database search"}</td></tr>
               <tr><td className="pr-3 text-muted-foreground">Original prompt</td><td>{props.original_prompt}</td></tr>
               {props.rewritten_prompt && (
                 <tr><td className="pr-3 text-muted-foreground">Follow-up rewrite</td><td>{props.rewritten_prompt}</td></tr>
               )}
               {!isChat && (
                 <tr>
-                  <td className="pr-3 text-muted-foreground">Modified query</td>
+                  <td className="pr-3 text-muted-foreground">{isAgent ? "Agent queries" : "Modified query"}</td>
                   <td className="font-medium">{props.modified_query || "(none)"}</td>
                 </tr>
               )}
@@ -97,17 +105,19 @@ export default function Diagnostics() {
 
           {ranks.length > 0 && (
             <div className="overflow-x-auto">
-              <p className="text-xs font-medium mb-1">Rank trace (Qdrant → reranker → LLM → shown)</p>
+              <p className="text-xs font-medium mb-1">{isAgent
+                ? "Rank trace per search (Qdrant → reranker, best of query / question → returned to the model → cited)"
+                : "Rank trace (Qdrant → reranker → LLM → shown)"}</p>
               <table className="text-xs w-full">
                 <thead className="text-muted-foreground">
                   <tr>
-                    <th className="text-left pr-2">Pool</th>
+                    <th className="text-left pr-2" title={isAgent ? "n-th search of the agent (hover: its query)" : undefined}>{isAgent ? "Search" : "Pool"}</th>
                     <th className="text-right pr-2" title="Position in the pool in Qdrant's hybrid (RRF) order">Qdrant</th>
                     <th className="text-right pr-2" title="Position after the cross-encoder reranker">Rerank</th>
                     <th className="text-right pr-2" title="Cross-encoder score">Score</th>
-                    <th className="text-right pr-2" title="Label the LLM saw">Sent</th>
-                    <th className="text-right pr-2" title="Order of the LLM's (or fallback's) pick">LLM</th>
-                    <th className="text-right pr-2" title="Position in the displayed list">Shown</th>
+                    <th className="text-right pr-2" title={isAgent ? "Position among the papers returned to the model (score at or above the cutoff)" : "Label the LLM saw"}>{isAgent ? "Returned" : "Sent"}</th>
+                    {!isAgent && <th className="text-right pr-2" title="Order of the LLM's (or fallback's) pick">LLM</th>}
+                    <th className="text-right pr-2" title={isAgent ? "Card number if the answer cites it" : "Position in the displayed list"}>{isAgent ? "Cited" : "Shown"}</th>
                     <th className="text-right pr-2" title="Publication year">Year</th>
                     {ranks.some((r) => r.title_sim !== null && r.title_sim !== undefined) && (
                       <th className="text-right pr-2" title="Title similarity to the typed title (title lookups)">Title sim</th>
@@ -118,13 +128,13 @@ export default function Diagnostics() {
                 <tbody>
                   {ranks.map((r) => (
                     <tr key={r.chunk_id} className={r.final_rank ? "font-medium" : "text-muted-foreground"}>
-                      <td className="pr-2">{r.pool}</td>
+                      <td className="pr-2" title={isAgent ? r.search : undefined}>{r.pool}</td>
                       <td className="text-right pr-2" title={`${r.search} search #${r.search_rank}, RRF ${r.rrf_score}`}>{r.initial_rank}</td>
                       <td className="text-right pr-2">{cell(r.rerank_rank)}</td>
                       <td className="text-right pr-2">{r.rerank_score === null || r.rerank_score === undefined ? "–" : r.rerank_score.toFixed(2)}</td>
-                      <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_label ? `[${r.llm_label}]` : "–"}</td>
-                      <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_rank ? `${r.llm_rank}${r.picked_by === "fallback" ? "*" : ""}` : "–"}</td>
-                      <td className="text-right pr-2">{cell(r.final_rank)}</td>
+                      <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_label ? (isAgent ? r.llm_label : `[${r.llm_label}]`) : "–"}</td>
+                      {!isAgent && <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_rank ? `${r.llm_rank}${r.picked_by === "fallback" ? "*" : ""}` : "–"}</td>}
+                      <td className="text-right pr-2">{isAgent && r.final_rank ? `[${r.final_rank}]` : cell(r.final_rank)}</td>
                       <td className="text-right pr-2">{cell(r.year)}</td>
                       {ranks.some((x) => x.title_sim !== null && x.title_sim !== undefined) && (
                         <td className="text-right pr-2">{r.title_sim === null || r.title_sim === undefined ? "–" : r.title_sim.toFixed(2)}</td>

@@ -1,0 +1,33 @@
+Run 20261112-1504_dev_keyed: 22 cases (dev, input=keyed)
+Loading the app, models and Qdrant connection...
+Loading the embedding models and connecting to Qdrant (http://localhost:6333, 'sebun_bge768_hybrid_full')...
+Loading the reranker BAAI/bge-reranker-base on cuda...
+Collection sebun_bge768_hybrid_full: 1,104,538 points
+WARNING: uncommitted changes ['M eval/run_eval.py', ' M threeofus_main.py', '?? eval/runs/20261112-1504_dev_keyed/']; the git commit alone won't identify this system.
+0 cases already done, 22 to run.
+
+[1/22] m00      17.0s  5 shown
+[2/22] m01      12.6s  1 shown
+[3/22] m04       3.6s  error: I can only help with computer science research: I search abo
+[4/22] m07      16.7s  5 shown
+[5/22] m10      14.7s  4 shown
+[6/22] m12      24.5s  0 shown
+[7/22] m14      13.5s  5 shown
+[8/22] m16       1.3s  error: I can only help with computer science research: I search abo
+[9/22] m18      25.0s  3 shown
+[10/22] m19       2.6s  error: I can only help with computer science research: I search abo
+[11/22] ls002    30.1s  3 shown
+[12/22] ls003    21.4s  3 shown
+[13/22] ls004    26.6s  1 shown
+[14/22] ls008    43.3s  3 shown
+[15/22] ls011    19.8s  3 shown
+[16/22] ls013    16.5s  3 shown
+[17/22] ls017    13.3s  3 shown
+[18/22] ls027    27.8s  4 shown
+[19/22] ls028    18.8s  4 shown
+[20/22] ls032    23.1s  1 shown
+[21/22] ls038    37.7s  3 shown
+[22/22] ls040    19.2s  1 shown
+
+Done in 429s. Traces: C:\Users\COM\Desktop\rag course proj\eval\runs\20261112-1504_dev_keyed\traces.jsonl
+Score it with:  python -X utf8 eval/score.py eval\runs\20261112-1504_dev_keyed

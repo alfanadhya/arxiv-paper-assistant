@@ -15,6 +15,7 @@ TAGS = ("[query]", "[mode]", "[analysis]", "[validation]", "[memory]", "[rerank]
         "[context]")
 CONTEXT_WARN_PCT = 90   # warn when a call used at least this share of the model's context window
 TITLE_TRACE_ROWS = 5    # title lookups: rows shown in the rank trace (top contenders)
+AGENT_TRACE_ROWS = 8    # agent searches: reranked rows shown per search (plus any returned or cited below it)
 
 # List that LLM calls of the current query report their token usage into (set per query, per thread).
 _usage_sink: contextvars.ContextVar[list | None] = contextvars.ContextVar("context_usage_sink", default=None)
@@ -204,8 +205,34 @@ class Diagnostics:
             if c:
                 c.final_rank = i
 
+    # One agent search_papers call: every reranked hit becomes a row. pool = "#n" (the n-th search of the turn),
+    # search = the model's query, initial_rank = Qdrant position, rerank_* = reranker (best of query/question),
+    # llm_label = position in what was returned to the model, final_rank = card number if the answer cites it.
+    def track_agent_search(self, n: int, query: str, qdrant_order: list, ranked: list, scores: list[float],
+                           returned_ids: list[str]) -> None:
+        qpos = {h.arxiv_id: i for i, h in enumerate(qdrant_order, start=1)}
+        for i, (h, s) in enumerate(zip(ranked, scores), start=1):
+            self.candidates.append(CandidateRank(
+                chunk_id=f"{n}:{h.point_id}", arxiv_id=h.arxiv_id, title=h.title, pool=f"#{n}", search=query,
+                search_rank=qpos.get(h.arxiv_id, 0), rrf_score=round(h.vector_score, 4),
+                dense_rank=h.dense_rank, sparse_rank=h.sparse_rank, initial_rank=qpos.get(h.arxiv_id, 0),
+                rerank_rank=i, rerank_score=round(float(s), 4),
+                llm_label=str(returned_ids.index(h.arxiv_id) + 1) if h.arxiv_id in returned_ids else None,
+                year=hit_year(h)))
+
+    # Agent answer: mark the cited papers with their card number (first row of each paper).
+    def track_agent_citations(self, cited_ids: list[str]) -> None:
+        for n, pid in enumerate(cited_ids, start=1):
+            row = next((c for c in self.candidates if c.arxiv_id == pid and c.llm_label), None)
+            if row:
+                row.final_rank, row.picked_by = n, "agent"
+
     # Candidates worth showing: everything sent to the LLM, plus initial top ones the reranker dropped.
     def rank_rows(self) -> list[CandidateRank]:
+        if self.mode == "agent":   # per search: what was returned to the model, plus the next few below it
+            rows = [c for c in self.candidates
+                    if c.llm_label or c.final_rank or (c.rerank_rank or 99) <= AGENT_TRACE_ROWS]
+            return sorted(rows, key=lambda c: (int(c.pool.lstrip("#") or 0), c.rerank_rank or 99))
         if self.mode == "title":   # title lookups: the top contenders after title similarity + reranker
             rows = [c for c in self.candidates if c.rerank_rank and c.rerank_rank <= TITLE_TRACE_ROWS]
             return sorted(rows, key=lambda c: c.rerank_rank)

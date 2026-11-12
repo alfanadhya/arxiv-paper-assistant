@@ -124,6 +124,9 @@ def system_version(app, retriever, variant: str, mode_key: str = "none") -> dict
         # mode_key 'none': no key, the agent answers; 'search': search= is typed (fixed pipeline)
         "mode_key": mode_key,
         "agent_enabled": getattr(app, "AGENT_ENABLED", False),
+        "agent": {k: getattr(app, k, None) for k in ("AGENT_TEMPERATURE", "AGENT_SEED", "AGENT_MAX_STEPS",
+                                                      "AGENT_MAX_TOKENS", "AGENT_CANDIDATES", "AGENT_RERANK_POOL",
+                                                      "AGENT_RERANK_CUTOFF")},
         "qdrant": {"url": app.QDRANT_URL, "collection": app.COLLECTION, "points_count": info.points_count,
                    "indexed_vectors_count": info.indexed_vectors_count, "status": str(info.status)},
         "embedding_model": {"id": rr.MODEL_ID, "revision": rr.MODEL_REVISION, "query_instruction": rr.QUERY_INSTRUCTION},
@@ -134,7 +137,7 @@ def system_version(app, retriever, variant: str, mode_key: str = "none") -> dict
                 "ollama": ollama_model_info(app),
                 "temperatures_from_source": re.findall(r"temperature=([\d.]+)", get_chains_src),
                 "seeds_from_source": re.findall(r"seed=(\d+)", get_chains_src)},
-        "k": {"k_retrieve_per_search": app.K_RETRIEVE, "searches": ["topic", "survey of <topic>"],
+        "k": {"k_retrieve_per_search": app.K_RETRIEVE, "searches": ["topic (surveys split from the same hits)"],
               "papers_picked_by_llm": app.MAX_PAPERS, "surveys_shown": app.SURVEYS_SHOWN,
               "llm_candidates": f"N+{app.MAX_EXTRA_CANDIDATES} if it fits, else N+{app.MIN_EXTRA_CANDIDATES}",
               "ranking_output_reserve": app.RANKING_OUTPUT_RESERVE},
@@ -238,9 +241,9 @@ def run_case(app, case: dict, variant: str, qdrant_log: list, mode_key: str = "n
     latency = round(time.perf_counter() - started, 2)
     a = response.analysis
     shown_hits = [response.papers[n - 1] for n in response.top_papers] + [response.surveys[n - 1] for n in response.top_surveys]
-    # search_papers() makes 2 calls (topic, survey); an author retry makes 2 more. The last attempt is the one used
-    # by the search= pipeline; for the agent every attempt is one of its searches and all of them count.
-    calls = [dict(call, search=("topic", "survey")[i % 2], attempt=i // 2 + 1) for i, call in enumerate(qdrant_log)]
+    # search_papers() makes ONE Qdrant call (surveys are split from the same hits); an author retry makes one more.
+    # The last attempt is the one used by the search= pipeline; for the agent every call is one of its searches.
+    calls = [dict(call, search="topic", attempt=i + 1) for i, call in enumerate(qdrant_log)]
     trace = {
         "case_id": case["case_id"],
         "message_sent": message,
@@ -271,6 +274,11 @@ def run_case(app, case: dict, variant: str, qdrant_log: list, mode_key: str = "n
         extra = agent_trace(response, calls)
         trace.update(extra)
         trace["context_ids"] = extra["stages"]["sent_to_llm"]   # everything the tools returned to the model
+        # an agent "answers" with text too: a reply with no papers (e.g. a recipe, a leaked prompt) is not an
+        # abstention; only an error (the scope refusal, a failure) is
+        trace["gate"] = {"answered": bool(response.answer or shown_hits) and not response.errors,
+                         "rule": "agent: answered = any answer text or papers and no error (refusal = error)"}
+    trace["refused_out_of_scope"] = app.SCOPE_REFUSAL in response.errors
     return trace
 
 
