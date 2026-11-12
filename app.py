@@ -52,6 +52,22 @@ def ensure_session() -> None:
     cl.user_session.set("buttons", {})        # Action objects are never restored
 
 
+# Save the session (shown papers, last results, reading list, mode, history) to the chat in history.db now.
+# Chainlit itself only saves it when the browser disconnects normally, so a server restart, crash or reload
+# would otherwise lose everything since then (e.g. analyze= then finds no papers). Called after each message
+# and each reading-list change.
+async def save_session() -> None:
+    from chainlit.data import get_data_layer
+    session = cl.context.session
+    data_layer = get_data_layer()
+    if not data_layer or not getattr(session, "thread_id", None) or not getattr(session, "has_first_interaction", False):
+        return
+    try:
+        await data_layer.update_thread(thread_id=session.thread_id, metadata=session.to_persistable())
+    except Exception as exc:   # never break the chat over a save; the disconnect save still runs
+        print(f"[session] could not save chat {session.thread_id}: {type(exc).__name__}: {exc}", flush=True)
+
+
 # ---------------------------------------------------------------- mode (banner) and last results
 # Remembered mode of this chat (None until the first search= / title= / analyze=).
 def current_mode() -> str | None:
@@ -64,31 +80,36 @@ async def set_mode(mode: str | None) -> None:
     await cl.send_window_message({"type": "mode", "mode": mode})
 
 
-# Remember the labels of a result just shown (replaces the previous one), for analyze= references.
-def set_last_results(labelled_hits: list[tuple[str, object]]) -> None:
+# Remember the labels of a result just shown (replaces the previous one) and its best match (the LLM's top
+# pick, or the title lookup's paper), for analyze= references.
+def set_last_results(labelled_hits: list[tuple[str, object]], best_label: str | None = None) -> None:
     cl.user_session.set("last_results", [[label, hit.arxiv_id] for label, hit in labelled_hits])
+    cl.user_session.set("last_best", best_label)
 
 
-# Papers of the last result in display order, each a paper dict with its label in that result.
+# Papers of the last result in display order, each a paper dict with its label in that result; the best
+# match has "best": True.
 def last_result_papers() -> list[dict]:
+    best = cl.user_session.get("last_best")
     papers = []
     for label, arxiv_id in cl.user_session.get("last_results") or []:
         paper = paper_by_id(arxiv_id)
         if paper is not None:
-            papers.append({**paper, "label": label})
+            papers.append({**paper, "label": label, "best": label == best})
     return papers
 
 
 # ---------------------------------------------------------------- conversation memory
-# Conversation so far as [{"role", "content"}] (LangChain MessagesPlaceholder format).
+# Conversation so far as [{"role", "content", "tags"}]; tags (set by code, see threeofus_main.memory_tags)
+# decide whether a turn is read in a later turn (threeofus_main.select_history strips them for LangChain).
 def history() -> list[dict]:
     return cl.user_session.get("history", [])
 
 
-# Append one turn to the session history, keeping the last MAX_HISTORY_TURNS pairs.
-def remember(role: str, content: str) -> None:
+# Append one entry to the session history, keeping the last MAX_HISTORY_TURNS pairs.
+def remember(role: str, content: str, tags: dict | None = None) -> None:
     items = history()
-    items.append({"role": role, "content": content})
+    items.append({"role": role, "content": content, "tags": tags or {}})
     cl.user_session.set("history", items[-2 * MAX_HISTORY_TURNS:])
 
 

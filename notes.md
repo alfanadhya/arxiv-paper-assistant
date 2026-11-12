@@ -12,7 +12,7 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
 
 - `chainlit` alone may not be on PATH; `python -m chainlit` always works.
 - The GUI is a web server, so the terminal stays busy until Ctrl+C.
-- **`-w` (watch mode) only reloads `threeofus_main.py` itself.** Imported modules (`app.py`, `db.py`, `chatbot_diagnostics.py`, `prompt_cleaning.py`, `retriever_hybrid_rrf.py`) need a full restart.
+- **`-w` (watch mode) reloads every project module** when a `.py` file (or `config.toml` / `chainlit.md`) changes: Chainlit drops all modules from the project folder from `sys.modules` before reloading. No restart is needed after code changes. A hard restart is worse: it reloads the models and skips Chainlit's save-on-disconnect.
 - **Every reload or restart drops open browser connections.** The browser reconnects and the chat is resumed (see [Chat resume](#chat-resume)). In the log this shows as `ConnectionResetError: [WinError 10054]`, which is harmless. For a stable demo, run without `-w`.
 - After changing `public/custom.js`, bump the `?v=` in `custom_js` in `.chainlit/config.toml` so browsers load the new file.
 
@@ -44,7 +44,7 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
    - **Mode keys:** `search=`, `title=`, `analyze=` (also `analyse=`). A mode key switches the chat's mode, which stays on until another mode key is typed. A message without a mode key uses the remembered mode, and its text before any metadata key is the value.
    - **Metadata keys:** `year=` (`2021`, `2019-2022`, `2019-`, `-2020`) and `author=` (`A; B`, or repeat the key). They apply to one message only, are the **only** source of years and authors, and are ignored by `analyze=`.
    - **Errors stop the turn:** several mode keys, a key used twice, an empty value, a bad year, an empty author.
-2. **Length:** the message is at most `MAX_PROMPT_WORDS` (200). A `title=` value is `TITLE_MIN_WORDS`–`TITLE_MAX_WORDS` (3–30). Only words with a letter or digit count.
+2. **Length (runs first, before the keys):** the whole message is at most `MAX_PROMPT_WORDS` (200) words in every mode; only words with a letter or digit count. A message over the limit is not processed at all, so a mode key in it doesn't switch the mode.
 3. **Collapse:** repeated spaces, and runs of the same symbol (`...`, `???`, `;;`), become one.
 4. **Symbols:** letters, digits and `, - : . ; ? '` are kept, other symbols become spaces. Text with no letter or digit left is rejected.
 
@@ -90,7 +90,7 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
 - **Resolving references** (`resolve_paper_refs`, in code):
   - `1`, `[2]`, `S1` or `[S3]` are labels of the last result.
   - An arXiv id can be any paper in `papers_by_id`.
-  - No reference means the whole last result, up to `ANALYZE_MAX_PAPERS` (8).
+  - No label: a singular reference (`SINGULAR_REF_RE`: "this paper", "it", "the best one") means the best match (`last_best`, the LLM's top pick). Anything else, or no known best match, asks the user for a label, with no LLM call. At most `ANALYZE_MAX_PAPERS` (8) papers go to the model.
   - An unknown label stops with a list of the available ones.
   - A plain number always counts as a label: "top 3 ideas" means paper 3.
 - **The LLM call:** one call (`ANALYZE_PROMPT`, reasoning on, capped at `ANALYZE_MAX_TOKENS`) with the papers' title, authors, year and abstract. It is told to answer only from those, cite labels, and not repeat titles.

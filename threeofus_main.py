@@ -15,15 +15,15 @@ from pathlib import Path
 from typing import Callable
 
 from dotenv import load_dotenv
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field, field_validator
 
 from export import DEFAULT_SELECTION_FILE, selection_file, write_chunks_jsonl
-from chatbot_diagnostics import (Diagnostics, describe_analysis, format_diagnostics, llm_config,
+from chatbot_diagnostics import (Diagnostics, format_diagnostics, llm_config,
                                  start_context_tracking, stop_context_tracking)
-from prompt_cleaning import (ANALYZE_EXAMPLE, MODE_EXAMPLES, SEARCH_EXAMPLE, ParsedMessage, collapse_repeats,
+from prompt_cleaning import (MODE_EXAMPLES, SEARCH_EXAMPLE, ParsedMessage, collapse_repeats,
                              length_problem, parse_message, remove_symbols)   # input checks (steps 1-4)
 from retriever_hybrid_rrf import MODELS_CACHE_DIR, MetadataIntent, build_retriever
 
@@ -61,7 +61,12 @@ MAX_HISTORY_TURNS = 10   # question/answer pairs kept for follow-up questions
 # analyze= references to shown papers: [2], 2, S1, [S1] (labels of the last result) or an arXiv id
 ANALYZE_REF_RE = re.compile(r"(?<![\w.])\[?(S?\d{1,2})\]?(?![\w.])|\b(\d{4}\.\d{4,5})(?:v\d+)?\b", re.IGNORECASE)
 ANALYZE_MAX_PAPERS = 8   # papers given to the LLM for one analyze= question (3 papers + 5 surveys)
-ANALYZE_MAX_TOKENS = int(os.getenv("ANALYZE_MAX_TOKENS", "2048"))   # cap on generated tokens (thinking + answer)
+# Generated-token cap (thinking + answer). qwen3 thinks first; 2048 was used up by thinking over 8 abstracts.
+ANALYZE_MAX_TOKENS = int(os.getenv("ANALYZE_MAX_TOKENS", "4096"))
+# analyze= without a label: a singular reference means the best match; anything else -> ask for a label
+SINGULAR_REF_RE = re.compile(r"\b(?:this|that|the)\s+(?:paper|one|work|article|study|survey|result)\b|"
+                             r"\bit\b|\bits\b|\bthe\s+best(?:\s+(?:one|match|paper))?\b|\bbest\s+match\b",
+                             re.IGNORECASE)
 # Input filter: messages with neither search= nor title= get a fixed reminder without any LLM call.
 # Set True to answer them with the chat model instead (chat_reply, kept for later use cases).
 CHAT_WITH_LLM = False
@@ -115,7 +120,33 @@ TokenFn = Callable[[str], None]   # receives reply text piece by piece while the
 
 
 # --------------------------------------------------------------------------- schemas
-# Cleaned topic + metadata used as Qdrant filters.
+# What the spell-check LLM returns (LangChain PydanticOutputParser): the search target for Qdrant and the
+# unclear flag. The model sees the request WITH its year=/author= keys but does not return metadata: the
+# parser already extracted it (asking the small model for it made it loop and return an empty topic).
+class TopicCheck(BaseModel):
+    """Search target for the paper database and whether the request is understandable."""
+    # required (no default): a default of "" in the JSON schema made the model return an empty search_query
+    search_query: str = Field(
+        description="Never empty: what to search the paper database for, i.e. the research topic "
+                    "(or paper title) with spelling fixed, WITHOUT the year=/author= keys, their values and "
+                    "the words linking to them.")
+    unclear: bool = Field(
+        description="true only if the request is not understandable even after spelling correction "
+                    "(random letters, keyboard mashing). Known acronyms are clear.")
+    unclear_reason: str = Field(default="", description="If unclear is true: a few words on why, else ''.")
+
+    @field_validator("unclear", mode="before")
+    @classmethod
+    def _coerce_unclear(cls, v):
+        return v.strip().lower() in ("true", "yes", "1") if isinstance(v, str) else bool(v)
+
+    @field_validator("search_query", "unclear_reason", mode="before")
+    @classmethod
+    def _coerce_text(cls, v):
+        return "" if v is None else str(v)
+
+
+# Cleaned topic + metadata used as Qdrant filters (built by code: topic from TopicCheck, metadata from the keys).
 class QueryAnalysis(BaseModel):
     """Cleaned topic + metadata used as Qdrant filters."""
     corrected_query: str = Field(default="",
@@ -224,7 +255,10 @@ class SearchResponse:
     top_surveys: list[int] = field(default_factory=list)# 1-based positions into surveys (newest first if newest_first)
     best: tuple[str, object] | None = None              # (label like "3" / "S2", hit)
     active_mode: str | None = None                      # mode remembered for the chat after this turn (banner)
+    request: str = ""                                   # the user's request with its year=/author= keys (LLM context)
+    filters: str = "none"                               # metadata filters Qdrant used (describe_filters), LLM context
     memory_note: str = ""                               # analyze=: papers used, kept in the conversation memory only
+    memory_papers: list[str] = field(default_factory=list)   # analyze=: arXiv ids of the papers used
     criteria: list[str] = field(default_factory=list)
     why_best: str = ""
     reasoning: str = ""
@@ -237,65 +271,61 @@ class SearchResponse:
 
 
 # --------------------------------------------------------------------------- prompts
-ANALYZE_SYSTEM_PROMPT = """You analyze search queries for a database of computer science research papers.
-Most queries are just a topic with no authors and no years. Metadata is OPTIONAL: extract it only when it
-is clearly written in the query, otherwise leave it empty. Never invent metadata.
+ANALYZE_SYSTEM_PROMPT = """You turn a user's request into the search target for a database of computer science research papers.
+You get two lines:
+- Full request: the whole request as the user wrote it, for context. It may contain metadata keys:
+  year=2021 (exactly 2021), year=2019-2022 (2019 to 2022), year=2019- (hyphen after: from 2019 on),
+  year=-2020 (hyphen before: up to 2020), author=Kipf; Welling (one or more authors).
+  The application has already read and applied these keys; they are always valid and never your concern.
+- Topic text: the part of the request before the keys. Build search_query from this line only.
 
-1. corrected_query (REQUIRED, never empty): the research topic with spelling mistakes fixed.
-   - Fix misspelled words, including misspelled technical terms and model names
+1. search_query (never empty): the research topic from the Topic text.
+   - Fix misspelled words, including technical terms and model names
      (e.g. "transfomers" -> "transformers", "nueral" -> "neural", "BRET" -> "BERT").
-   - Keep correctly spelled terms and acronyms exactly as written (e.g. GAN, BERT, LSTM).
-   - Remove request/filler words such as "find me papers about", "research on", "I want", "please",
-     or a trailing "research"/"papers". Do not add new words.
-   - If the query is only a topic (even a single word), return that topic with spelling fixed.
-2. authors: ALWAYS return an empty list []. Authors are given separately by the application;
-   words like "by Smith" are part of the topic text, keep them in corrected_query.
-3. Years, ONLY if a 4-digit year is written in the query: "in 2021" -> year; "after/since 2019" -> year_from;
-   "before/until 2020" -> year_to. Otherwise leave all three null.
-4. category: always null.
-5. corrected_query must not contain years or filler words.
-6. unclear: set true ONLY if the query is not an understandable research topic even after spelling correction,
-   e.g. random letters ("fsg", "asdf qwe"), keyboard mashing, or meaningless text. Then give a short
-   unclear_reason and copy the query as corrected_query. Known acronyms and short topics are clear
-   (e.g. GAN, BERT, RAG, LLM, CNN, SLAM, NLP, "transformers"), so unclear stays false for them.
+   - Keep correctly spelled terms, acronyms and numbers exactly as written (e.g. GAN, BERT, LSTM, GPT-4).
+   - Drop a trailing word that only linked to a key ("after", "since", "before", "from", "in", "by").
+   - Drop request words such as "find me papers about", "research on", "papers on", "I want", "please".
+   - Never copy keys, years or author names from the Full request into search_query.
+   - Do not add new words and do not rephrase. A single word is a valid topic.
+2. unclear: true ONLY if the Topic text is not an understandable research topic even after spelling
+   correction, e.g. random letters ("fsg", "asdf qwe") or keyboard mashing. Then give a short unclear_reason
+   and copy the Topic text as search_query. Known acronyms are clear (GAN, BERT, RAG, LLM, CNN, SLAM, NLP).
+   Typos, the keys and missing years or authors are never a reason for unclear.
 
 Examples:
-"transfomers"
--> corrected_query: "transformers", authors: [], year: null, year_from: null, year_to: null
-"graph nueral netwrks for drug discovery"
--> corrected_query: "graph neural networks for drug discovery", authors: [], all years null
-"find me papers about GAN for malwre detection by Ian Goodfellow 2020"
--> corrected_query: "GAN for malware detection by Ian Goodfellow", authors: [], year: 2020
-"transformr models for code generation research since 2021"
--> corrected_query: "transformer models for code generation", authors: [], year_from: 2021
-"BERT fine-tuning"
--> corrected_query: "BERT fine-tuning", authors: [], all years null
-"fsg"
--> corrected_query: "fsg", authors: [], all years null, unclear: true, unclear_reason: "not a recognizable research topic"
-"RAG"
--> corrected_query: "RAG", authors: [], all years null, unclear: false"""
+Full request: transfomers / Topic text: transfomers
+-> search_query: "transformers", unclear: false
+Full request: transforemrs papaers after year=2026- / Topic text: transforemrs papaers after
+-> search_query: "transformers", unclear: false
+Full request: find me papers about GAN for malwre detection by author=Goodfellow / Topic text: find me papers about GAN for malwre detection by
+-> search_query: "GAN for malware detection", unclear: false
+Full request: graph nueral netwrks for drug discovery year=2019-2022 / Topic text: graph nueral netwrks for drug discovery
+-> search_query: "graph neural networks for drug discovery", unclear: false
+Full request: fsg / Topic text: fsg
+-> search_query: "fsg", unclear: true, unclear_reason: "not a recognizable research topic"
+Full request: RAG year=2023 / Topic text: RAG
+-> search_query: "RAG", unclear: false"""
 
-ANALYZE_TITLE_SYSTEM_PROMPT = """You analyze an exact paper TITLE typed by a user, for a database of computer science papers.
-1. corrected_query (REQUIRED, never empty): the title with spelling mistakes fixed and NOTHING else changed.
-   Keep every word, the word order, colons, hyphens and acronyms. Do not remove words such as "a survey",
-   "towards", "on", "research"; do not shorten, paraphrase or add words.
-2. authors: ALWAYS []. Authors are given separately by the application ("by ..." is title text).
-   Years are OPTIONAL and usually missing: only a 4-digit year written after the title -> year
-   ("2017", "in 2017"); remove that year from corrected_query. Otherwise all years are null.
-3. category: always null.
-4. unclear: true only if the text is not an understandable paper title even after spelling correction
-   (random letters, keyboard mashing). Real titles, even unusual ones, are clear.
+ANALYZE_TITLE_SYSTEM_PROMPT = """You turn a user's request into the exact paper TITLE to look up in a database of computer science papers.
+You get two lines:
+- Full request: the whole request, for context. It may contain metadata keys year= (year=2017, year=2016-2018,
+  year=2016-, year=-2018) and author= (author=Vaswani); the application has already applied them.
+- Topic text: the title part before the keys. Build search_query from this line only.
+
+1. search_query (never empty): the title from the Topic text with spelling mistakes fixed and NOTHING else
+   changed. Keep every word, the word order, colons, hyphens, numbers and acronyms. Do not remove words such as
+   "a survey", "towards", "on"; do not shorten, paraphrase or add words. Never copy keys from the Full request.
+2. unclear: true only if the title is not understandable even after spelling correction (random letters,
+   keyboard mashing). Real titles, even unusual ones, are clear.
 
 Examples:
-"atention is all you need"
--> corrected_query: "Attention is all you need", authors: [], all years null, unclear: false
-"Malware resistant data protection in hyper-connected networks: a survey"
--> corrected_query: "Malware resistant data protection in hyper-connected networks: a survey", authors: [], all years null
-"BERT: pre-training of deep bidirectional transformers for langauge understanding 2019"
--> corrected_query: "BERT: pre-training of deep bidirectional transformers for language understanding", authors: [], year: 2019"""
+Full request: atention is all you need year=2017 author=Vaswani / Topic text: atention is all you need
+-> search_query: "Attention is all you need", unclear: false
+Full request: Malware resistant data protection in hyper-connected networks: a survey / Topic text: Malware resistant data protection in hyper-connected networks: a survey
+-> search_query: "Malware resistant data protection in hyper-connected networks: a survey", unclear: false"""
 
-ANALYZE_RETRY_NOTE = ("\n\nIMPORTANT: your previous answer had an empty corrected_query. corrected_query is required: "
-                      "return the research topic from the query with spelling fixed, even if it is a single word.")
+ANALYZE_RETRY_NOTE = ("\n\nIMPORTANT: your previous answer had an empty search_query. search_query is required: "
+                      "return the research topic from the request with spelling fixed, even if it is a single word.")
 
 # Ranking runs as one LLM call per pool, so the model only ever compares like with like.
 RANK_POOLS = {
@@ -357,17 +387,21 @@ RANK_POOL_PROMPT = ChatPromptTemplate.from_messages([
      "First state the criteria you use to judge how well a paper matches the user's query. "
      "Then apply them: list the numbers of the {limit}, best first (only the number, e.g. 2 for {example}). "
      "Do not explain each paper; only give one sentence on why your first pick is the best match. "
-     "Only use papers from the context.\n\n"
+     "Only use papers from the context. Judge by the search target. The filters were applied in the database "
+     "search, so every candidate already matches them; the user's request is given for context.\n\n"
      "Candidates:\n{candidates}"),
-    ("human", "{query}"),
+    ("human", "Search target: {query}\nFilters used in the database search: {filters}\nUser's request: {request}"),
 ])
 
 
-# Prompt inputs for ranking one pool (pool = "paper" or "survey"; limit = how many it may pick).
-def rank_inputs(pool: str, hits: list, topic: str, limit: int) -> dict:
+# Prompt inputs for ranking one pool (pool = "paper" or "survey"; limit = how many it may pick;
+# request = the user's request with its keys, kept in context next to the search target; filters = the
+# metadata filters Qdrant actually used, after validation, e.g. "years=2019-2026, authors=Kipf").
+def rank_inputs(pool: str, hits: list, topic: str, limit: int, request: str = "", filters: str = "none") -> dict:
     p = RANK_POOLS[pool]
     return {"kind": p["kind"], "labels": p["labels"], "example": p["example"], "limit": p["limit"](limit),
-            "candidates": numbered(hits, p["prefix"]), "query": topic}
+            "candidates": numbered(hits, p["prefix"]), "query": topic, "request": request or topic,
+            "filters": filters}
 
 
 # --------------------------------------------------------------------------- query analysis
@@ -515,32 +549,37 @@ def ollama_llm(**options) -> ChatOllama:
     return ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_URL, num_ctx=NUM_CTX, keep_alive=keep_alive, **options)
 
 
-# Build (once) the analysis and answer chains; both share one Ollama model and num_ctx.
+# Spell-check chain (search and title): prompt with the parser's format instructions -> Ollama held to the
+# TopicCheck JSON schema -> LangChain PydanticOutputParser (raises OutputParserException on bad output, which
+# run_analyzer turns into the regex fallback). The human message is the request WITH its year=/author= keys.
+def spell_check_chain(system_prompt: str):
+    parser = PydanticOutputParser(pydantic_object=TopicCheck)
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt + "\n\n{format_instructions}"),
+        ("human", "Full request: {request}\nTopic text: {query}"),
+    ]).partial(format_instructions=parser.get_format_instructions())
+    llm = ollama_llm(temperature=0, reasoning=False, format=TopicCheck.model_json_schema())
+    return prompt | llm | parser
+
+
+# Build (once) the search spell-check chain and the ranking chain; both share one Ollama model and num_ctx.
 @functools.lru_cache(maxsize=1)
 def get_chains():
-    analyzer = ollama_llm(temperature=0, reasoning=False)
     llm = ollama_llm(reasoning=True, temperature=0.6, seed=42)
-    analyze_prompt = ChatPromptTemplate.from_messages([("system", ANALYZE_SYSTEM_PROMPT), ("human", "{query}")])
-    analyze_chain = analyze_prompt | analyzer.with_structured_output(QueryAnalysis)
     rank_chain = RANK_POOL_PROMPT | llm.with_structured_output(PoolRanking, include_raw=True)   # one pool per call
-    return analyze_chain, rank_chain
+    return spell_check_chain(ANALYZE_SYSTEM_PROMPT), rank_chain
 
 
-# Build (once) the analysis chain used for one retry after an empty topic (stronger instruction).
+# Build (once) the spell-check chain used for one retry after an empty search target (stronger instruction).
 @functools.lru_cache(maxsize=1)
 def get_retry_analyze_chain():
-    analyzer = ollama_llm(temperature=0, reasoning=False)
-    prompt = ChatPromptTemplate.from_messages([("system", ANALYZE_SYSTEM_PROMPT + ANALYZE_RETRY_NOTE),
-                                               ("human", "{query}")])
-    return prompt | analyzer.with_structured_output(QueryAnalysis)
+    return spell_check_chain(ANALYZE_SYSTEM_PROMPT + ANALYZE_RETRY_NOTE)
 
 
-# Build (once) the title analysis chain: spelling fix only, wording kept, optional author/year extraction.
+# Build (once) the title spell-check chain: spelling fixed, wording kept, keys dropped.
 @functools.lru_cache(maxsize=1)
 def get_title_chain():
-    analyzer = ollama_llm(temperature=0, reasoning=False)
-    prompt = ChatPromptTemplate.from_messages([("system", ANALYZE_TITLE_SYSTEM_PROMPT), ("human", "{query}")])
-    return prompt | analyzer.with_structured_output(QueryAnalysis)
+    return spell_check_chain(ANALYZE_TITLE_SYSTEM_PROMPT)
 
 
 # Build (once) the follow-up rewrite chain; same model and num_ctx as the analyzer, no reasoning.
@@ -614,6 +653,48 @@ def add_turn(history: list[dict], role: str, content: str, max_turns: int = MAX_
     return history
 
 
+# Tags saved with a question/answer pair (by code, no model call), read by select_history in later turns:
+#   mode   : "search" / "title" / "analyze" / "chat"
+#   ok     : False if the turn failed (error, no results, no answer) -> never read again
+#   papers : arXiv ids the turn showed (search/title) or used (analyze)
+def memory_tags(r: SearchResponse) -> dict:
+    if r.mode == "analyze":
+        papers = list(r.memory_papers)
+    elif r.mode in ("search", "title"):
+        papers = [r.papers[n - 1].arxiv_id for n in r.top_papers] + [r.surveys[n - 1].arxiv_id for n in r.top_surveys]
+    else:
+        papers = []
+    ok = not r.errors and (bool(r.answer) if r.mode in ("analyze", "chat") else bool(papers))
+    return {"mode": r.mode, "ok": ok, "papers": papers}
+
+
+# Earlier turns to put in the model's context, without their tags (LangChain format). Failed turns are
+# skipped. With `paper_ids` (an analyze= call): only turns about at least one of those papers, plus the latest
+# search/title result (so the model knows which list the labels come from). Turns saved before tags existed
+# count as ok and relevant. Returns (history, [memory] diagnostic line).
+def select_history(history: list[dict] | None, paper_ids: set[str] | None = None) -> tuple[list[dict], str]:
+    entries = history or []
+    pairs = [entries[i:i + 2] for i in range(0, len(entries) - 1, 2)]
+    tags_of = lambda pair: pair[-1].get("tags") or {}
+    last_result = max((i for i, p in enumerate(pairs) if tags_of(p).get("mode") in ("search", "title")
+                       and tags_of(p).get("ok", True)), default=None)
+    kept, failed, other = [], 0, 0
+    for i, pair in enumerate(pairs):
+        tags = tags_of(pair)
+        if not tags.get("ok", True):
+            failed += 1
+            continue
+        known = tags.get("papers")
+        if paper_ids is not None and i != last_result and known is not None and not set(known) & paper_ids:
+            other += 1
+            continue
+        kept.append(pair)
+    note = (f"[memory] Context reads {len(kept)} of {len(pairs)} earlier turn(s)"
+            + (f"; skipped {failed} failed" if failed else "")
+            + (f"; skipped {other} about other papers" if other else "") + ".")
+    return [{"role": e["role"], "content": e["content"]} for pair in kept for e in pair], note
+
+
 # Assistant turn text for the history: summary line plus numbered picks with arXiv ids.
 def assistant_turn_text(r: SearchResponse) -> str:
     if r.mode == "analyze":   # the papers used are remembered here (not shown in the answer)
@@ -668,28 +749,33 @@ def rewrite_with_history(prompt: str, history: list[dict] | None) -> tuple[str, 
 
 # Run the analyzer (one retry if the topic is empty, regex fallback on failure); returns (analysis, notes).
 # title_mode=True uses the title prompt: spelling fixed, wording kept exactly.
-def run_analyzer(text: str, title_mode: bool = False) -> tuple[QueryAnalysis, list[str]]:
+# request = what the model sees: the text WITH its year=/author= keys (metadata is extracted by the parser but
+# kept in the request); text = the topic/title alone, used by the regex fallback.
+def run_analyzer(text: str, title_mode: bool = False, request: str | None = None) -> tuple[QueryAnalysis, list[str]]:
     if not text.strip():
         return regex_fallback(text), []
+    request = request or text
     analyze_chain = get_title_chain() if title_mode else get_chains()[0]
     notes = []
     try:
-        analysis = analyze_chain.invoke({"query": text}, config=llm_config("analysis"))
-        if analysis is None:
-            raise ValueError("model returned no structured output")
-        if not analysis.corrected_query.strip():
-            notes.append(f"[analysis] Model returned an empty topic ({describe_analysis(analysis)}); retrying once.")
-            retry = get_retry_analyze_chain().invoke({"query": text}, config=llm_config("analysis retry"))
-            if retry is not None and retry.corrected_query.strip():
-                notes.append(f"[analysis] Retry gave topic '{retry.corrected_query}'.")
-                analysis = retry
+        inputs = {"request": request, "query": text}
+        check: TopicCheck = analyze_chain.invoke(inputs, config=llm_config("analysis"))
+        if not check.search_query.strip():
+            notes.append("[analysis] Model returned an empty search target; retrying once.")
+            retry = get_retry_analyze_chain().invoke(inputs, config=llm_config("analysis retry"))
+            if retry.search_query.strip():
+                notes.append(f"[analysis] Retry gave search target '{retry.search_query}'.")
+                check = retry
             else:
-                notes.append("[analysis] Retry topic also empty.")
-    except Exception as exc:
-        notes.append(f"[analysis] Model failed ({type(exc).__name__}: {exc}); used regex fallback "
+                notes.append("[analysis] Retry search target also empty.")
+        notes.append(f"[analysis] Spell check: request '{request}' -> search target '{check.search_query}'.")
+    except Exception as exc:   # OutputParserException (bad JSON / schema) or Ollama errors
+        notes.append(f"[analysis] Model failed ({type(exc).__name__}: {str(exc)[:200]}); used regex fallback "
                      "(topic as typed, no spelling fix).")
-        analysis = regex_fallback(text)
-    return analysis, notes
+        return regex_fallback(text), notes
+    # Metadata stays empty here: analyze_query fills it from the year= / author= keys
+    return QueryAnalysis(corrected_query=check.search_query, unclear=check.unclear,
+                         unclear_reason=check.unclear_reason), notes
 
 
 # Run the analyzer on the search=/title= text (spelling fix + clarity check only) and validate; returns
@@ -699,11 +785,7 @@ def analyze_query(prompt: str, title_mode: bool = False,
                   meta: ParsedMessage | None = None) -> tuple[QueryCheck, str]:
     meta = meta or ParsedMessage(mode="title" if title_mode else "search", text=prompt)
     category, rest, category_warning = parse_category(prompt)
-    analysis, notes = run_analyzer(rest, title_mode)
-    guessed = {k: v for k in ("authors", "year", "year_from", "year_to") if (v := getattr(analysis, k))}
-    if guessed:
-        notes.append(f"[validation] Ignored metadata guessed by the model {guessed}: years and authors are "
-                     "only taken from year= / author=.")
+    analysis, notes = run_analyzer(rest, title_mode, request=meta.with_meta(rest))
     analysis.authors = list(meta.authors)
     analysis.year, analysis.year_from, analysis.year_to = meta.year, meta.year_from, meta.year_to
     check = validate(rest, analysis, keep_wording=title_mode, trusted_meta=True)
@@ -993,8 +1075,11 @@ def record_picks(response: SearchResponse, paper_order: list[int], paper_by: str
 
 
 # Format hits as '[n] title\\nabstract' blocks for the prompt.
+# The stored text is 'title\n\nabstract', so only its abstract part follows the '[n] title' line (no repeated
+# title); a record with only a title or only an abstract keeps what it has.
 def numbered(hits: list, prefix: str = "") -> str:
-    return "\n\n".join(f"[{prefix}{i}] {h.title}\n{h.text}" for i, h in enumerate(hits, start=1)) or "(none)"
+    return "\n\n".join(f"[{prefix}{i}] {h.title}\n{h.text.split(chr(10) * 2, 1)[-1]}"
+                       for i, h in enumerate(hits, start=1)) or "(none)"
 
 
 # Survey display order (no LLM ranking): newest first if the GUI box asks for it (same year keeps the
@@ -1033,7 +1118,8 @@ def rank_pool(response: SearchResponse, pool: str, hits: list, topic: str, limit
     log(f"Asking Ollama ({OLLAMA_MODEL}) to pick the best {name}: top {len(hits)} of {found} found...")
     _, rank_chain = get_chains()
     try:
-        output = rank_chain.invoke(rank_inputs(pool, hits, topic, limit), config=llm_config(f"ranking {name}"))
+        output = rank_chain.invoke(rank_inputs(pool, hits, topic, limit, response.request, response.filters),
+                                   config=llm_config(f"ranking {name}"))
     except Exception as exc:
         return fallback(f"Ollama request failed ({type(exc).__name__}: {exc}); check that Ollama is running "
                         f"and '{OLLAMA_MODEL}' is pulled (ollama pull {OLLAMA_MODEL})")
@@ -1106,6 +1192,8 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
                 response.diagnostics.append(note)
             if response.search_prompt != prompt:
                 response.diagnostics.rewritten_prompt = response.search_prompt
+        # the request as the user gave it (keys included) stays in the LLM context next to the search target
+        response.request = meta.with_meta(response.search_prompt) if meta else response.search_prompt
         log("Analyzing query...")
         check, rest = analyze_query(response.search_prompt, meta=meta)
     except Exception as exc:
@@ -1134,9 +1222,13 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
             response.diagnostics.append("[validation] ADJUSTED: no papers for the author(s) with that first "
                                         "initial; retried with last name only.")
             paper_pool, survey_pool, origin = search_papers(a, response.survey_focus, log, use_initials=False)
+            used_initials = False
     except Exception as exc:
         response.errors.append(f"Qdrant search failed: {type(exc).__name__}: {exc}")
         return response
+    # The filters exactly as Qdrant used them (after validation and the last-name retry): ranking LLM context
+    response.filters = describe_filters(a) + (" (authors matched by last name only)"
+                                              if a.authors and not used_initials else "")
 
     if not survey_pool and (response.survey_focus or not paper_pool):
         kind = "survey papers" if response.survey_focus else "papers"
@@ -1357,9 +1449,11 @@ def chat_reply(message: str, log: LogFn = lambda msg: print(msg, flush=True),
 
 
 # Papers an analyze= question refers to. shown = the last result's papers in display order, each a paper dict
-# (app.to_paper) with its current "label" ("1", "S2"); known = every paper shown in this chat by arXiv id.
-# References: labels ([2], 2, S1) of the last result, or arXiv ids of any paper shown. No reference -> all of
-# the last result. Returns (papers, unknown references).
+# (app.to_paper) with its current "label" ("1", "S2") and "best" (the LLM's top pick); known = every paper
+# shown in this chat by arXiv id.
+# References: labels ([2], 2, S1) of the last result, or arXiv ids of any paper shown. No label: a singular
+# reference ("this paper", "it", "the best one") -> the best match only; anything else -> no papers, and the
+# user is asked for a label. Returns (papers, unknown references).
 def resolve_paper_refs(question: str, shown: list[dict], known: dict[str, dict]) -> tuple[list[dict], list[str]]:
     by_label = {p["label"].upper(): p for p in shown}
     picked, unknown = [], []
@@ -1370,8 +1464,9 @@ def resolve_paper_refs(question: str, shown: list[dict], known: dict[str, dict])
             unknown.append(f"[{label}]" if label else arxiv_id)
         elif all(p["arxiv_id"] != paper["arxiv_id"] for p in picked):
             picked.append(paper)
-    if not picked and not unknown:
-        picked = list(shown)
+    if not picked and not unknown and SINGULAR_REF_RE.search(question):
+        picked = [p for p in shown if p.get("best")]   # "this paper", "it": the best match, if one is known
+    # anything else (or no known best match): nothing -> run_analyze asks the user for a label
     return picked[:ANALYZE_MAX_PAPERS], unknown
 
 
@@ -1404,8 +1499,10 @@ def run_analyze(question: str, shown: list[dict] | None, known: dict[str, dict] 
         diag.append(f"[analyze] FAILED: unknown reference(s) {', '.join(unknown)}; last results {available}.")
         return response
     if not papers:
-        response.errors.append(f"Name the papers to analyze, e.g. {ANALYZE_EXAMPLE} (labels from the last results).")
-        diag.append("[analyze] FAILED: no paper resolved.")
+        # No label and no clear "this paper" / "these papers": ask instead of guessing (no LLM call)
+        response.errors.append(f"Which paper do you mean? Please add its label from the last results "
+                               f"({available}), e.g. 'what is the main contribution of 1' or 'compare 1 and S2'.")
+        diag.append(f"[analyze] No paper label found in the question -> asked the user (labels {available}).")
         return response
     diag.append(f"[analyze] Papers used: " + "; ".join(f"[{p['label']}] {p['arxiv_id']} '{p['title'][:60]}'"
                                                        for p in papers) + ".")
@@ -1413,6 +1510,9 @@ def run_analyze(question: str, shown: list[dict] | None, known: dict[str, dict] 
     # The papers used are not printed; they go to the conversation memory with the answer (assistant_turn_text)
     response.memory_note = "Papers used: " + "; ".join(f"[{p['label']}] [{p['arxiv_id']}] {p['title']}"
                                                        for p in papers)
+    response.memory_papers = [p["arxiv_id"] for p in papers]
+    history, note = select_history(history, set(response.memory_papers))
+    diag.append(note)
     start_context_tracking(diag)
     try:
         log(f"Asking Ollama ({OLLAMA_MODEL}) about {len(papers)} paper(s)...")
@@ -1473,12 +1573,12 @@ def rejected(message: str, parsed: ParsedMessage, error: str, diag_line: str) ->
 
 
 # Entry point for one user message. Input checks, in order (no model call until all pass):
-#   1. keys      : a mode key search= / title= / analyze= switches the chat's mode, which is remembered for the
-#                  next messages until another mode key is typed (no key and no mode yet -> chat reminder);
-#                  year=/author= are per-message metadata (ignored by analyze=)
-#   2. length    : whole message <= MAX_PROMPT_WORDS; a title= value TITLE_MIN_WORDS..TITLE_MAX_WORDS words
-#   3. collapse  : repeated spaces and runs of the same symbol -> one
-#   4. symbols   : keep letters, digits and , - : . ; ? ' ; other symbols -> space
+#   1. length    : whole message as typed <= MAX_PROMPT_WORDS (every mode; too long -> nothing runs)
+#   2. symbols   : whole message: runs of the same symbol -> one, then keep only letters, digits and
+#                  = , - : . ; ? ' & (other symbols -> space)
+#   3. keys      : the parser (parse_message) reads the mode key and the year= / author= metadata in one go;
+#                  a mode key switches the chat's mode, remembered until another mode key is typed (no key and
+#                  no mode yet -> chat reminder); year=/author= are per-message metadata (ignored by analyze=)
 # Then search= runs the search pipeline, title= the title lookup, analyze= a question about shown papers.
 # on_token is used by non-search replies only (search results are structured and arrive at the end).
 # current_mode = the chat's remembered mode (None before the first mode key); shown / known = papers of the
@@ -1489,8 +1589,28 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
              newest_first: bool = False, current_mode: str | None = None,
              shown: list[dict] | None = None, known: dict[str, dict] | None = None) -> SearchResponse:
     message = message or ""
-    # 1. Keys
-    parsed = parse_message(message, current_mode)
+    # 1. Length: first, on the whole message as typed, the same limit for every mode. A message that is too
+    #    long is not processed at all, so its mode key (if any) does not switch the mode either.
+    problem = length_problem(message)
+    if problem:
+        too_long = rejected(message, ParsedMessage(mode=current_mode or "search", text=message), *problem)
+        too_long.active_mode = current_mode
+        return too_long
+
+    # 2. Symbols: collapse repeated symbols, then keep only the wanted ones (= , - : . ; ? ' &), on the whole
+    #    message, so the keys are read from clean text ('=' is kept for them)
+    clean_notes = []
+    collapsed = collapse_repeats(message)
+    if collapsed != " ".join(message.split()):
+        clean_notes.append(f"[query] Step 2 symbols (collapse): '{' '.join(message.split())}' -> '{collapsed}'.")
+    cleaned = remove_symbols(collapsed)
+    if cleaned != collapsed:
+        clean_notes.append(f"[query] Step 2 symbols (remove): '{collapsed}' -> '{cleaned}'.")
+
+    # 3. Keys: the parser reads the mode key and the year= / author= metadata in one go (the topic/title/question
+    #    text is what remains without them)
+    parsed = parse_message(cleaned, current_mode)
+    parsed.notes[:0] = clean_notes
     mode = parsed.mode
     active = parsed.mode_key or current_mode
 
@@ -1500,30 +1620,26 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
 
     if mode == "chat":
         if CHAT_WITH_LLM:
-            return done(chat_reply(message, log, history, on_token))
+            return done(chat_reply(message, log, select_history(history)[0], on_token))
         return done(command_reminder(message))   # input filter: no key, no mode yet -> inform, no LLM call
+    if parsed.mode_key == "analyze" and not shown:
+        # No search= / title= result in this chat yet: analyze= has nothing to work on (and chat with the LLM is
+        # off), so the mode does not switch; the user stays in the current mode
+        active = current_mode
+        return done(rejected(message, parsed,
+                             f"Analyze mode needs a result first: run a search= or title= lookup, e.g. "
+                             f"{SEARCH_EXAMPLE}. You are still in {current_mode or 'search'} mode.",
+                             f"[query] Step 3 keys: analyze= before any search=/title= result -> mode not switched "
+                             f"(stays {current_mode})."))
     if parsed.errors:
         return done(rejected(message, parsed, " ".join(parsed.errors),
-                             f"[query] Step 1 keys: {parsed.summary()} -> FAILED: {' '.join(parsed.errors)}"))
+                             f"[query] Step 3 keys: {parsed.summary()} -> FAILED: {' '.join(parsed.errors)}"))
 
-    # 2. Length
-    problem = length_problem(message, parsed)
-    if problem:
-        return done(rejected(message, parsed, *problem))
-
-    # 3. Collapse repeats, 4. remove symbols
-    typed = parsed.text
-    collapsed = collapse_repeats(typed)
-    if collapsed != typed:
-        parsed.notes.append(f"[query] Step 3 collapse: '{typed}' -> '{collapsed}'.")
-    parsed.text = remove_symbols(collapsed)
-    if parsed.text != collapsed:
-        parsed.notes.append(f"[query] Step 4 symbols: '{collapsed}' -> '{parsed.text}'.")
     if not re.search(r"[^\W_]", parsed.text):
         what = {"title": "paper title", "analyze": "question"}.get(mode, "topic")
         return done(rejected(message, parsed, f"{mode}= has no words left after removing symbols; type a "
                                               f"{what}, e.g. {MODE_EXAMPLES[mode]}.",
-                             f"[query] Step 4 symbols: nothing but symbols in '{typed}' -> FAILED."))
+                             f"[query] Step 2 symbols (remove): nothing but symbols in the {mode}= text -> FAILED."))
     query = parsed.text
     try:
         if mode == "analyze":
@@ -1531,7 +1647,8 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
         elif mode == "title":
             response = run_title_query(query, log, meta=parsed)
         else:
-            response = run_query(query, log, history, newest_first=newest_first, meta=parsed)
+            # follow-up rewrite reads only the successful earlier turns
+            response = run_query(query, log, select_history(history)[0], newest_first=newest_first, meta=parsed)
     finally:
         stop_context_tracking()
     # [mode] + [query] parser notes first, [context] last
@@ -1907,22 +2024,31 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
                 cl.run_sync(status.remove())
             cl.run_sync(answer.stream_token(piece))
 
+        # A mode key switches the banner and the box border at once, before the (slower) search or answer runs
+        # (analyze= only once a search=/title= result exists in this chat; otherwise run_turn refuses it)
+        shown = gui.last_result_papers()
+        # (and not for a message over the length limit: run_turn rejects it before reading any key)
+        typed_mode = None if length_problem(prompt) else parse_message(prompt, gui.current_mode()).mode_key
+        if typed_mode and typed_mode != gui.current_mode() and (typed_mode != "analyze" or shown):
+            await gui.set_mode(typed_mode)
+
         user = cl.context.session.user
         newest_first = bool(user) and db.get_pref(user.identifier, NEWEST_FIRST_PREF) == "1"   # top-bar box
         r = await cl.make_async(run_turn)(prompt, log, list(gui.history()), on_token,
                                           newest_first=newest_first, current_mode=gui.current_mode(),
-                                          shown=gui.last_result_papers(),
+                                          shown=shown,
                                           known=dict(cl.user_session.get("papers_by_id") or {}))
         if not streaming["started"]:
             await status.remove()
         if r.active_mode != gui.current_mode():
             await gui.set_mode(r.active_mode)   # a mode key was typed: banner + remembered mode
-        gui.remember("user", prompt)
-        gui.remember("assistant", assistant_turn_text(r))
+        tags = memory_tags(r)   # decides whether later turns read this question/answer
+        gui.remember("user", prompt, tags)
+        gui.remember("assistant", assistant_turn_text(r), tags)
         selection = gui_selection()
         on_results_shown(selection, r)
         if r.mode in ("search", "title") and not r.errors:
-            gui.set_last_results(gui.picked_hits(r))   # labels analyze= can refer to
+            gui.set_last_results(gui.picked_hits(r), r.best[0] if r.best else None)   # for analyze= references
 
         if r.mode in ("chat", "analyze"):
             final = r.answer if r.answer else "**Can't answer:**\n" + "\n".join(f"- {e}" for e in r.errors)
@@ -1941,6 +2067,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
                 await gui.send_paper(paper, selection.is_checked(hit.point_id))
         await gui.send_diagnostics_panel(r.diagnostics.to_dict())   # collapsible panel under the answer
         print(format_diagnostics(r), flush=True)   # console copy of the digest
+        await gui.save_session()   # shown papers, last results, mode: kept even if the server is restarted
 
     # "Reading list" button: open the sidebar.
     @cl.action_callback("open_list")
@@ -1961,6 +2088,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         await gui.add_to_list(arxiv_id)
         await gui.set_button_state(arxiv_id, True)
         await show_list_change()
+        await gui.save_session()
 
     # After a select/unselect on a card: pin the panel and send the new list without redrawing it.
     # An open panel updates in place (no reload); a closed panel is opened by public/custom.js.
@@ -1979,6 +2107,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         await gui.set_button_state(arxiv_id, False)
         if refresh_panel:
             await show_list_change()
+        await gui.save_session()
 
     # Bin button in the sidebar: unselect the paper (the panel already removed it itself, no refresh).
     @cl.action_callback("remove_paper")
@@ -1989,11 +2118,13 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
     @cl.action_callback("reorder")
     async def gui_reorder(action: cl.Action):
         gui.reorder(action.payload["order"])
+        await gui.save_session()
 
     # Pin button in the sidebar: remember the pin state (default pinned).
     @cl.action_callback("pin_list")
     async def gui_pin_list(action: cl.Action):
         gui.set_pinned(action.payload.get("pinned", True))
+        await gui.save_session()
 
     # Export button: write the checked chunks (JSONL) and build the zip (BibTeX + PDFs).
     @cl.action_callback("export")
