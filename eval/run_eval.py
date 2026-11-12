@@ -102,7 +102,8 @@ def system_version(app, retriever, variant: str) -> dict:
     get_chains_src = ""
     try:
         import inspect
-        get_chains_src = inspect.getsource(app.get_chains)
+        get_chains_src = "".join(inspect.getsource(f) for f in (app.get_chains, getattr(app, "spell_check_chain", None))
+                                 if f is not None)
     except Exception:
         pass
     prompts = {name: sha(value if isinstance(value, str) else repr(value.messages))
