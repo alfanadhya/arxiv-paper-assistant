@@ -178,17 +178,18 @@ def main():
             "coverage_purpose": "estimate",
             "slice": "ls_specific" if specific else "ls_broad",
             "hard_case_tags": ["multi_source"] if len(ids) > 1 else [],
-            "hypothesis": ("A representative literature-search request: the target paper appears in the top 5"
+            "hypothesis": ("A representative literature-search request: the target paper is among the papers shown"
                            if specific else
-                           "A representative broad literature-search request: labelled papers appear among the results"),
-            "request": {"query": x["query"], "audience": "graduate student",
+                           "A representative broad literature-search request: labelled papers are among the papers shown"),
+            # the exact message typed: the app only searches a message with a mode key (search=)
+            "request": {"query": f"search= {x['query']}", "setup_turns": [], "audience": "graduate student",
                         "date_scope": None, "allowed_sources": "indexed corpus only"},
             "reference": {
                 "relevant_ids": ids,
                 "relevance_rule": None,
                 "acceptable_alternative_ids": [],
                 "wrong_scope_ids": [],
-                "required_facts": [f"Cites {a} ({corpus[a]['title']})" for a in ids],
+                "required_facts": [f"Shows {a} ({corpus[a]['title']})" for a in ids],
             },
             "expected_behavior": "answer",
             "expected_parse": {"topic": None, "year_from": None, "year_to": None, "author": None},

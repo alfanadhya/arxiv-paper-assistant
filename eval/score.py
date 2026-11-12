@@ -14,7 +14,9 @@ Metric definitions (evaluator version "score v1"; unit = arXiv paper without ver
     R1 recall_shown       relevant papers among everything shown (<=3 papers + <=5 surveys) / all known relevant
     R1p recall_papers     same, research papers shown only (<=3)
     R2 candidate_recall   relevant papers in either Qdrant list (topic + survey search, 20 each) / all known relevant
-    R3 precision_shown    relevant papers shown / papers shown (rule-based cases use the relevance rule)
+    R3 precision_shown    relevant papers shown / papers shown (rule-based cases use the relevance rule); over the
+                          research papers only when the case says surveys don't count (surveys_count false)
+       recall_cap         highest recall possible with 3 research papers shown: min(1, 3 / relevant papers)
     R4 rr                 1 / rank of the first relevant paper in the shown list; 0 if none
     R5 ndcg_at_10         reranked list (both pools merged by reranker score), binary gain, ideal over the judged pool
     R6 stage_ranks        rank of each relevant paper at each stage, and the stage where it was dropped
@@ -37,6 +39,7 @@ CASES = EVAL / "cases"
 EVALUATOR_VERSION = "score v1"
 PROTOCOL = EVAL / "EVALUATION_PROTOCOL.md"
 H1_SLICE = "ls_specific"
+MAX_SHOWN_PAPERS = 3   # research papers the LLM may pick (threeofus_main.MAX_PAPERS); surveys come on top
 H_THRESHOLD = 0.60
 
 
@@ -210,7 +213,13 @@ def score_case(case: dict, trace: dict) -> dict:
     else:
         recall_shown = recall_papers = cand_recall = rr = None
         ranks = {}
-    precision = round(len(rel_shown) / len(shown), 4) if shown and (judge.listed or judge.rule) else None
+    # Precision over what can count: when surveys don't count for this case (surveys_count false), the 5 surveys
+    # the system always shows would cap precision at 3/8, so it is computed over the research papers shown.
+    judged = shown if case["surveys_count"] else shown_papers
+    rel_judged = [pid for pid in judged if judge.relevant(get(pid))]
+    precision = round(len(rel_judged) / len(judged), 4) if judged and (judge.listed or judge.rule) else None
+    # Highest recall possible: at most MAX_SHOWN_PAPERS research papers are shown (plus surveys)
+    recall_cap = round(min(1.0, MAX_SHOWN_PAPERS / len(judge.listed)), 4) if judge.enumerated else None
     wrong_scope_shown = [pid for pid in shown if pid in judge.wrong_scope]
 
     answered = trace["gate"]["answered"]
@@ -234,12 +243,16 @@ def score_case(case: dict, trace: dict) -> dict:
         failure = ("retrieval_or_selection", f"No relevant paper shown: {lost}.")
     elif not judge.enumerated and (judge.listed or judge.rule) and not rel_shown:
         failure = ("retrieval_or_selection", f"None of the {len(shown)} shown papers is relevant under the rule/list.")
+    elif trace.get("answer") and (trace["answer"]["errors"] or not trace["answer"]["text"]):
+        failure = ("generation", f"The {trace['answer']['mode']}= turn gave no answer: "
+                                 f"{'; '.join(trace['answer']['errors'])[:160] or 'empty answer'}")
     else:
         failure = ("pass_retrieval", "Relevant evidence was shown; answer and attribution still need the human audit.")
 
     return dict(row, crashed=False, answered=answered, n_shown=len(shown), relevant_shown=rel_shown,
                 wrong_scope_shown=wrong_scope_shown,
-                retrieval={"recall_shown": recall_shown, "recall_papers": recall_papers,
+                retrieval={"recall_shown": recall_shown, "recall_papers": recall_papers, "recall_cap": recall_cap,
+                           "precision_over": "shown" if case["surveys_count"] else "shown research papers",
                            "candidate_recall_at_20": cand_recall, "precision_shown": precision, "rr": rr,
                            "ndcg_at_10": ndcg_at_10(trace, judge, papers), "stage_ranks": ranks},
                 gate={"cell": gate_cell, "answered": answered, "sufficiency_label": positive},
@@ -285,9 +298,9 @@ def protocol_version() -> str:
     return m.group(1).strip() if m else "unknown"
 
 
-AUDIT_FIELDS = ["case_id", "split", "slice", "expected_behavior", "message_sent", "parsed_topic", "expected_topic",
+AUDIT_FIELDS = ["case_id", "split", "slice", "expected_behavior", "messages", "parsed_topic", "expected_topic",
                 "filters_correct", "shown", "relevant_shown", "failure_label", "failure_reason",
-                "why_best", "criteria",
+                "why_best", "criteria", "answer", "answer_papers_used", "required_facts",
                 # filled by the auditor (yes / no / n.a. + note)
                 "topic_parse_ok", "A1_correct", "A2_grounded", "A3_relevant", "A4_complete", "A5_abstention_ok",
                 "claims_cited_ok", "extra_relevant_ids", "human_agrees_with_label", "auditor", "note"]
@@ -295,8 +308,13 @@ AUDIT_FIELDS = ["case_id", "split", "slice", "expected_behavior", "message_sent"
 
 def audit_row(case: dict, trace: dict, row: dict) -> dict:
     shown = trace.get("response", {}).get("shown", []) if not trace.get("crashed") else []
+    answer = trace.get("answer") or {}
     return {"case_id": case["case_id"], "split": case["split"], "slice": case["slice"],
-            "expected_behavior": case["expected_behavior"], "message_sent": trace.get("message_sent"),
+            "expected_behavior": case["expected_behavior"],
+            "messages": " || ".join(trace.get("messages") or [trace.get("message_sent") or ""]),
+            "answer": answer.get("text") or "; ".join(answer.get("errors") or []),
+            "answer_papers_used": "; ".join(answer.get("papers_used") or []),
+            "required_facts": " | ".join(case["reference"]["required_facts"]),
             "parsed_topic": (trace.get("parse") or {}).get("topic"), "expected_topic": case["expected_parse"]["topic"],
             "filters_correct": (row.get("parse") or {}).get("filters_correct"),
             "shown": " | ".join(f"{p['arxiv_id']} ({p['year']}) {p['title']}" for p in shown),

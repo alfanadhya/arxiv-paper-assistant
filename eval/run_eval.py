@@ -10,7 +10,10 @@ Run from the arxiv-paper-assistant folder, with the app's .env in place:
 
 Output, in a NEW folder eval/runs/<run_id>/ (an old run is never overwritten, §47):
     system_version.json   git commit, models, collection, settings, prompt hashes (§7)
-    traces.jsonl          one line per case: parse, every Qdrant list, the rank trace, what was shown (§7.2)
+    traces.jsonl          one line per case: parse, every Qdrant list, the rank trace, what was shown (§7.2),
+                          and for 2-turn cases the analyze= answer
+Each case is sent EXACTLY as written in the case file (request.setup_turns, then request.query), in one
+simulated chat that keeps the GUI's state between turns; "{shown_labels}" becomes the last result's labels.
     run_log.txt           console output of the run
 If a run stops, rerun with --run-id <same id>: cases already in traces.jsonl are skipped.
 """
@@ -53,22 +56,17 @@ def load_cases(split: str, only: list[str] | None) -> list[dict]:
     return cases
 
 
-def build_message(case: dict, variant: str) -> str:
-    """The exact text a user would type. 'keyed' adds the year=/author= keys for the scope the request states."""
-    query = " ".join(case["request"]["query"].split())
-    message = f"search= {query}"
+FILTER_KEY_RE = re.compile(r"\s+(?:year|author)\s*=.*?(?=\s+\w+\s*=|$)", re.IGNORECASE)
+LABELS_PLACEHOLDER = "{shown_labels}"
+
+
+def build_messages(case: dict, variant: str) -> list[str]:
+    """The messages typed in one chat, in order: setup turns, then the query, EXACTLY as in the case file.
+    'plain' (an experiment) removes the year=/author= keys, to measure requests typed without them."""
+    messages = list(case["request"]["setup_turns"]) + [case["request"]["query"]]
     if variant == "plain":
-        return message
-    scope = case["request"].get("date_scope") or {}
-    y_from, y_to = scope.get("year_from"), scope.get("year_to")
-    if y_from is not None and y_from == y_to:
-        message += f" year={y_from}"
-    elif y_from is not None or y_to is not None:
-        message += f" year={y_from or ''}-{y_to or ''}"
-    author = (case.get("expected_parse") or {}).get("author")
-    if author and case["slice"] == "filter_author":
-        message += f" author={author}"
-    return message
+        messages = [FILTER_KEY_RE.sub("", m) for m in messages]
+    return messages
 
 
 def sha(text: str) -> str:
@@ -177,24 +175,81 @@ def stages(response, qdrant_calls: list) -> dict:
     }
 
 
-def run_case(app, case: dict, variant: str, qdrant_log: list) -> dict:
-    message = build_message(case, variant)
-    qdrant_log.clear()
+class Chat:
+    """The per-chat state the GUI keeps between turns (threeofus_main.gui_on_message): remembered mode,
+    conversation memory, the last result's labelled papers (for analyze=) and every paper shown so far."""
+
+    def __init__(self, app, gui):
+        self.app, self.gui = app, gui
+        self.mode, self.history, self.shown, self.known = None, [], [], {}
+
+    def labels(self) -> str:
+        return ", ".join(p["label"] for p in self.shown)
+
+    def send(self, message: str):
+        message = message.replace(LABELS_PLACEHOLDER, self.labels())
+        r = self.app.run_turn(message, log=lambda msg: None, history=list(self.history), current_mode=self.mode,
+                              shown=list(self.shown), known=dict(self.known))
+        self.mode = r.active_mode
+        tags = self.app.memory_tags(r)
+        self.history += [{"role": "user", "content": message, "tags": tags},
+                         {"role": "assistant", "content": self.app.assistant_turn_text(r), "tags": tags}]
+        self.history = self.history[-2 * self.app.MAX_HISTORY_TURNS:]
+        if r.mode in ("search", "title") and not r.errors:
+            best = r.best[0] if r.best else None
+            self.shown = []
+            for label, hit in self.gui.picked_hits(r):
+                p = self.gui.to_paper(hit, label)
+                self.known[p["arxiv_id"]] = p
+                self.shown.append({**p, "best": label == best})
+        return message, r
+
+
+def run_case(app, gui, case: dict, variant: str, qdrant_log: list) -> dict:
+    messages = build_messages(case, variant)
+    chat = Chat(app, gui)
+    turns, search_response, search_calls = [], None, []
     started = time.perf_counter()
     try:
-        response = app.run_turn(message, log=lambda msg: None, current_mode="search")
+        for message in messages:
+            qdrant_log.clear()
+            t0 = time.perf_counter()
+            sent, r = chat.send(message)
+            turns.append({"message_sent": sent, "mode": r.mode, "errors": list(r.errors), "answer": r.answer,
+                          "papers_used": list(r.memory_papers), "tokens": r.diagnostics.context_usage,
+                          "diagnostics": r.diagnostics.messages, "latency_s": round(time.perf_counter() - t0, 2)})
+            if r.mode in ("search", "title"):
+                search_response, search_calls = r, list(qdrant_log)
     except Exception as exc:   # one broken case must not stop the run; it is scored as a system error
-        return {"case_id": case["case_id"], "message_sent": message, "crashed": True,
-                "errors": [f"{type(exc).__name__}: {exc}"], "traceback": traceback.format_exc(),
+        return {"case_id": case["case_id"], "messages": messages, "message_sent": messages[-1], "crashed": True,
+                "turns": turns, "errors": [f"{type(exc).__name__}: {exc}"], "traceback": traceback.format_exc(),
                 "latency_s": round(time.perf_counter() - started, 2)}
     latency = round(time.perf_counter() - started, 2)
+    last = turns[-1]
+    answer = None if last["mode"] in ("search", "title") else {
+        "mode": last["mode"], "message_sent": last["message_sent"], "text": last["answer"],
+        "papers_used": last["papers_used"], "errors": last["errors"]}
+    if search_response is None:   # no search turn ran (e.g. the message went to chat mode): nothing to score
+        return {"case_id": case["case_id"], "messages": messages, "message_sent": last["message_sent"],
+                "crashed": False, "mode": last["mode"], "parse": None, "warnings": [],
+                "errors": last["errors"] or [f"no search turn: the app handled the message in {last['mode']} mode"],
+                "qdrant_calls": [], "stages": {"qdrant": {}, "rerank_papers": [], "rerank_surveys": [],
+                                               "sent_to_llm": [], "llm_ranked": [], "shown_papers": [],
+                                               "shown_surveys": [], "shown": []},
+                "candidates": [], "gate": {"answered": False}, "context_ids": [], "context_papers": [],
+                "response": {"shown": [], "best": None, "why_best": "", "criteria": [], "ranking_fallback": False,
+                             "reasoning": "", "formatted": ""},
+                "answer": answer, "turns": turns, "diagnostics": [], "tokens": [], "latency_s": latency}
+    response, qdrant_calls = search_response, search_calls
+    message = next(t["message_sent"] for t in reversed(turns) if t["mode"] in ("search", "title"))
     a = response.analysis
     shown_hits = [response.papers[n - 1] for n in response.top_papers] + [response.surveys[n - 1] for n in response.top_surveys]
     # search_papers() makes 2 calls (topic, survey); an author retry makes 2 more. The last attempt is the one used.
-    calls = [dict(call, search=("topic", "survey")[i % 2], attempt=i // 2 + 1) for i, call in enumerate(qdrant_log)]
+    calls = [dict(call, search=("topic", "survey")[i % 2], attempt=i // 2 + 1) for i, call in enumerate(qdrant_calls)]
     return {
         "case_id": case["case_id"],
-        "message_sent": message,
+        "messages": [t["message_sent"] for t in turns],   # every message typed, as sent (labels filled in)
+        "message_sent": message,                          # the search=/title= message the stages below come from
         "crashed": False,
         "mode": response.mode,
         "parse": None if a is None else {
@@ -214,8 +269,10 @@ def run_case(app, case: dict, variant: str, qdrant_log: list) -> dict:
                      "why_best": response.why_best, "criteria": list(response.criteria),
                      "ranking_fallback": response.ranking_fallback, "reasoning": response.reasoning,
                      "formatted": app.format_response(response)},
+        "answer": answer,             # the analyze= turn of a 2-turn case (text + papers used), else None
+        "turns": turns,
         "diagnostics": response.diagnostics.messages,
-        "tokens": response.diagnostics.context_usage,
+        "tokens": [u for t in turns for u in t["tokens"]],
         "latency_s": latency,
     }
 
@@ -240,7 +297,8 @@ def main():
     ap.add_argument("--cases", nargs="*", help="only these case IDs, e.g. m00 ls001")
     ap.add_argument("--limit", type=int, help="only the first N cases (smoke test)")
     ap.add_argument("--input", choices=["keyed", "plain"], default="keyed",
-                    help="keyed (default): add year=/author= keys for the stated scope; plain: natural text only")
+                    help="keyed (default): send each message exactly as in the case file; "
+                         "plain (experiment): remove the year=/author= keys first")
     ap.add_argument("--run-id", help="continue this run folder instead of starting a new one")
     ap.add_argument("--final", action="store_true", help="required for --split test/all: the test set is run ONCE (§9)")
     args = ap.parse_args()
@@ -265,6 +323,7 @@ def main():
     print(f"Run {run_id}: {len(cases)} cases ({args.split}, input={args.input})")
     print("Loading the app, models and Qdrant connection...")
     import threeofus_main as app
+    import app as gui                    # the GUI's own helpers: labels of shown papers, paper dicts for analyze=
 
     count = app.warmup(print)
     retriever = app.get_retriever()
@@ -299,7 +358,7 @@ def main():
 
     started = time.perf_counter()
     for i, case in enumerate(todo, start=1):
-        trace = run_case(app, case, args.input, qdrant_log)
+        trace = run_case(app, gui, case, args.input, qdrant_log)
         trace.update(run_id=run_id, system_version_ref="system_version.json", split=case["split"],
                      case_set_version=case["case_set_version"])
         with traces.open("a", encoding="utf-8") as f:

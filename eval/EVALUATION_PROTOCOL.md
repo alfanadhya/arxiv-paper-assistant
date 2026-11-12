@@ -186,7 +186,8 @@ The complete record has three parts. Part 1 is in the case files (`cases/litsear
 | `source` | `litsearch:<query_set>` or `manual` | §9 |
 | `coverage_purpose` | `estimate` or `diagnostic` | §9 |
 | `slice`, `hard_case_tags` | Disjoint slice, plus difficulty tags | §9, §31, §42 |
-| `request.query` | Exact text sent to the system | §8 |
+| `request.query` | Exact text sent to the system, **keys included** (`search= LoRA year=2024`): the app ignores a message without a mode key. In an `analyze=` message, `{shown_labels}` is replaced by the labels of the last result | §8 |
+| `request.setup_turns` | Messages typed before `query` in the same chat, e.g. the `search=` before an `analyze=` question. Usually empty | §8 |
 | `request.audience`, `request.date_scope`, `request.allowed_sources` | Scope of the request | §8, §12 |
 | `reference.relevant_ids` | Known relevant arXiv IDs (the judged pool) | §8, §13 |
 | `reference.acceptable_alternative_ids`, `reference.wrong_scope_ids` | Alternatives after review, and topic matches with the wrong scope | §10–§12 |
@@ -309,5 +310,11 @@ Export format for RAGAS (§54): `user_input` = `request.query`, `retrieved_conte
 - [x] Backend trace code received (RAG-part merge, 2026-11-12). Runner `eval/run_eval.py` and scorer `eval/score.py` written; see `eval/RUNNING.md`.
 - [ ] **Gate:** search mode has no gate score. It abstains only when nothing is found, so G2 is not applicable, and `no_evidence`/`adversarial` cases are expected to fail A5. G1 uses "answered = papers shown".
 - [ ] **H2 / C1–C4:** search mode writes no cited summary, only the picked papers plus `why_best`/`criteria`. Decide whether attribution is audited on that text or only in `analyze=` mode.
-- [ ] **Input:** years and authors are read only from `year=`/`author=` keys. The runner's default `--input keyed` adds them from the case scope; `--input plain` measures natural-language requests without keys.
+- [x] **Input (2026-11-12, before any run):** the case files were changed in place, without a new version, because nothing had been run or scored yet:
+  - Every message now carries its keys (`search=`, `year=`, `author=`), and the runner sends it exactly as written. `--input plain` (an experiment) removes the filter keys.
+  - Expected topics keep the user's wording: the spell check fixes spelling and drops request words, but doesn't paraphrase.
+  - The answer-type diagnostic cases (m11–m14, m17, m18) are now 2-turn: `search=`, then `analyze=` over the shown papers.
+  - m19's expected behaviour changed from abstain to answer: in a paper-search tool, staying on task means searching.
+  - Splits and relevance labels are unchanged.
+- [ ] **Known gap:** there's no relevance gate, so `no_evidence` cases m15 and m16 are expected to fail. That's a finding to report, not a reason to relabel them.
 - [ ] Teammate review of this protocol, then freeze v1.0 **before** the first run.

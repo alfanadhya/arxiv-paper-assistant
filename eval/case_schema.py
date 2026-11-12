@@ -4,6 +4,8 @@ Every case, LitSearch or diagnostic, has exactly these fields. A field that does
 apply to a case type is present with a null/empty value, never missing.
 """
 
+import re
+
 TOP_LEVEL = {
     "case_id": str,
     "case_set_version": str,
@@ -27,7 +29,13 @@ TOP_LEVEL = {
     "label_notes": str,
     "source_details": (dict, type(None)),   # LitSearch row details; null for diagnostic cases
 }
-REQUEST = {"query": str, "audience": str, "date_scope": (dict, type(None)), "allowed_sources": str}
+# query = the exact message typed into the app, keys included (e.g. "search= LoRA year=2024").
+# setup_turns = messages typed BEFORE it in the same chat (e.g. a search= before an analyze=); usually [].
+# "{shown_labels}" in an analyze= message is replaced by the labels of the last result (e.g. "1, 2, 3, S1").
+REQUEST = {"query": str, "setup_turns": list, "audience": str, "date_scope": (dict, type(None)),
+           "allowed_sources": str}
+MODE_KEY_RE = r"^\s*(search|title|analy[sz]e)\s*="
+LABELS_PLACEHOLDER = "{shown_labels}"
 REFERENCE = {"relevant_ids": list, "relevance_rule": (dict, type(None)), "acceptable_alternative_ids": list,
              "wrong_scope_ids": list, "required_facts": list}
 EXPECTED_PARSE = {"topic": (str, type(None)), "year_from": (int, type(None)),
@@ -62,6 +70,15 @@ def validate(case: dict) -> list[str]:
     check(case, TOP_LEVEL, "")
     if isinstance(case.get("request"), dict):
         check(case["request"], REQUEST, "request.")
+        turns = list(case["request"].get("setup_turns") or []) + [case["request"].get("query") or ""]
+        for t in turns:
+            if not isinstance(t, str) or not re.match(MODE_KEY_RE, t, re.IGNORECASE):
+                errors.append(f"{cid}: message {t!r} must start with search=, title= or analyze= (the app "
+                              "ignores a message without a mode key)")
+            elif LABELS_PLACEHOLDER in t and not re.match(r"^\s*analy[sz]e\s*=", t, re.IGNORECASE):
+                errors.append(f"{cid}: {LABELS_PLACEHOLDER} is only allowed in an analyze= message")
+        if re.match(r"^\s*analy[sz]e\s*=", turns[0], re.IGNORECASE):
+            errors.append(f"{cid}: the first message can't be analyze= (nothing has been shown yet)")
     if isinstance(case.get("reference"), dict):
         check(case["reference"], REFERENCE, "reference.")
         rule = case["reference"].get("relevance_rule")

@@ -50,7 +50,10 @@ def to_case(r):
         "slice": r["slice"].strip(),
         "hard_case_tags": ids(r["hard_case_tags"]),
         "hypothesis": r["hypothesis"].strip(),
-        "request": {"query": r["query"].strip(), "audience": r["audience"].strip() or "graduate student",
+        # query = the exact message typed (keys included); setup_turns = earlier messages, separated by " || "
+        "request": {"query": r["query"].strip(),
+                    "setup_turns": [t.strip() for t in r["setup_turns"].split("||") if t.strip()],
+                    "audience": r["audience"].strip() or "graduate student",
                     "date_scope": date_scope, "allowed_sources": "indexed corpus only"},
         "reference": {
             "relevant_ids": ids(r["relevant_ids"]),
