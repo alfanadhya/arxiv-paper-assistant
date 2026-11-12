@@ -14,10 +14,11 @@ import export
 MAX_HISTORY_TURNS = 10  # question/answer pairs kept for follow-up questions
 MAX_SHOWN_PAPERS = 100  # papers kept in papers_by_id (session is saved to the DB, capped at 1 MB)
 
-WELCOME = ("Hi! Type a topic to search the arXiv papers. The banner at the top shows the current mode "
-           "with examples; switch with **search=**, **title=** or **analyze=**. Optional filters: **year=** "
-           "(*2021*, *2019-2022*, *2019-* or *-2020*) and **author=** (several separated by *;*, e.g. "
-           "*author=Kipf; Welling*). Click **☐ Select** under a paper to add it to your reading list.")
+WELCOME = ("Hi! Ask in your own words: a research question (*how are GNNs used for drug discovery?*), an "
+           "author (*what has Iryna Gurevych published on fact checking?*) or a question about the papers shown "
+           "(*list all authors of 1 and 2*); the assistant searches the papers itself. For a plain ranked list "
+           "use **search=** (*search= RAG evaluation year=2020- author=Kipf; Welling*), and **title=** to find "
+           "one paper by its exact title. Click **☐ Select** under a paper to add it to your reading list.")
 
 
 # ---------------------------------------------------------------- session state
@@ -38,8 +39,7 @@ def init_session() -> None:
     cl.user_session.set("buttons", {})        # arxiv_id -> (select Action, message id)
     cl.user_session.set("history", [])        # conversation memory for follow-ups
     cl.user_session.set("sidebar_pinned", True)   # reading-list panel pinned by default
-    cl.user_session.set("mode", "search")     # remembered mode: "search" / "title" / "analyze" (banner); new chat: search
-    cl.user_session.set("last_results", [])   # [[label, arxiv_id], ...] of the last result, for analyze=
+    cl.user_session.set("last_results", [])   # [[label, arxiv_id], ...] of the last result (labels for the agent)
 
 
 # After a resume, add any session keys that were not restored (keeps restored ones).
@@ -47,14 +47,12 @@ def ensure_session() -> None:
     for key, empty in (("reading_list", []), ("papers_by_id", {}), ("history", []), ("last_results", [])):
         if not isinstance(cl.user_session.get(key), type(empty)):
             cl.user_session.set(key, empty)
-    if cl.user_session.get("mode") not in ("search", "title", "analyze"):
-        cl.user_session.set("mode", None)
     cl.user_session.set("buttons", {})        # Action objects are never restored
 
 
 # Save the session (shown papers, last results, reading list, mode, history) to the chat in history.db now.
 # Chainlit itself only saves it when the browser disconnects normally, so a server restart, crash or reload
-# would otherwise lose everything since then (e.g. analyze= then finds no papers). Called after each message
+# would otherwise lose everything since then (e.g. the agent then sees no shown papers). Called after each message
 # and each reading-list change.
 async def save_session() -> None:
     from chainlit.data import get_data_layer
@@ -69,19 +67,14 @@ async def save_session() -> None:
 
 
 # ---------------------------------------------------------------- mode (banner) and last results
-# Remembered mode of this chat (None until the first search= / title= / analyze=).
-def current_mode() -> str | None:
-    return cl.user_session.get("mode")
-
-
-# Remember the mode and show it in the top-bar banner (public/custom.js, section 6).
-async def set_mode(mode: str | None) -> None:
-    cl.user_session.set("mode", mode)
+# Show in the top-bar banner what the current message runs: "search", "title", "ask" (the agent) or None
+# (neutral). Nothing is remembered: every message is handled on its own (public/custom.js, section 6).
+async def show_mode(mode: str | None) -> None:
     await cl.send_window_message({"type": "mode", "mode": mode})
 
 
 # Remember the labels of a result just shown (replaces the previous one) and its best match (the LLM's top
-# pick, or the title lookup's paper), for analyze= references.
+# pick, or the title lookup's paper), so the agent can read the labels.
 def set_last_results(labelled_hits: list[tuple[str, object]], best_label: str | None = None) -> None:
     cl.user_session.set("last_results", [[label, hit.arxiv_id] for label, hit in labelled_hits])
     cl.user_session.set("last_best", best_label)
@@ -367,10 +360,7 @@ async def resume(thread: dict) -> None:
         await resend(open_list_button(steps[0]["id"]), steps[0]["id"])
     if reading_list():
         await refresh_sidebar()
-    # A reopened chat keeps the mode it was in (the mode only changes when the user types a mode key).
-    # Default only for chats saved before modes existed: analyze if it has papers, else search.
-    mode = current_mode() or ("analyze" if cl.user_session.get("papers_by_id") else "search")
-    await set_mode(mode)
+    await show_mode(None)   # no remembered mode: the banner is neutral until the next message
 
 
 # ---------------------------------------------------------------- reading list

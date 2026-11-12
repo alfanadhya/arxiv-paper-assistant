@@ -1,0 +1,81 @@
+{
+  "runner_version": "run_eval v1",
+  "created": "2026-11-12T10:53:23",
+  "git_commit": "4e3a013972b777d2a0d551a14c0bae91e55f9e07",
+  "git_branch": "main",
+  "git_dirty_files": [
+    "?? eval/runs/"
+  ],
+  "code_hashes": {
+    "threeofus_main.py": "18f63859309a2a2f",
+    "retriever_hybrid_rrf.py": "b833b8106ce1780a",
+    "prompt_cleaning.py": "37d38d74641cfecb",
+    "chatbot_diagnostics.py": "ef527a564d6f5010"
+  },
+  "input_variant": "keyed",
+  "qdrant": {
+    "url": "http://localhost:6333",
+    "collection": "sebun_bge768_hybrid_full",
+    "points_count": 1104538,
+    "indexed_vectors_count": 2209076,
+    "status": "green"
+  },
+  "embedding_model": {
+    "id": "BAAI/bge-base-en-v1.5",
+    "revision": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
+    "query_instruction": "Represent this sentence for searching relevant passages: "
+  },
+  "sparse_model": {
+    "id": "Qdrant/bm25",
+    "min_weight": 0.3,
+    "max_terms": 35
+  },
+  "fusion": "Qdrant server-side RRF over dense + sparse prefetch",
+  "reranker_model": "BAAI/bge-reranker-base",
+  "llm": {
+    "model": "qwen3:4b",
+    "url": "http://localhost:11434",
+    "num_ctx": 8192,
+    "ollama": {
+      "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+      "quantization": "Q4_K_M",
+      "parameter_size": "4.0B"
+    },
+    "temperatures_from_source": [
+      "0.6",
+      "0"
+    ],
+    "seeds_from_source": [
+      "42"
+    ]
+  },
+  "k": {
+    "k_retrieve_per_search": 20,
+    "searches": [
+      "topic",
+      "survey of <topic>"
+    ],
+    "papers_picked_by_llm": 3,
+    "surveys_shown": 5,
+    "llm_candidates": "N+2 if it fits, else N+1",
+    "ranking_output_reserve": 3000
+  },
+  "evidence_selection": "papers: reranker top N+1/N+2 sent to LLM, LLM picks up to 3; surveys: reranker top 5 shown without LLM",
+  "prompt_hashes": {
+    "DEFAULT_PROMPT": "123d4aa8f0b4f3da",
+    "ANALYZE_SYSTEM_PROMPT": "233592d00640936f",
+    "ANALYZE_TITLE_SYSTEM_PROMPT": "a4cdc93f54f95a92",
+    "REWRITE_SYSTEM_PROMPT": "bf05b198c5efc3b6",
+    "REWRITE_PROMPT": "7f4c0475a3fb1ea5",
+    "CHAT_SYSTEM_PROMPT": "b04e0dac30d1bcc6",
+    "CHAT_PROMPT": "302ec5300308e06b",
+    "ANALYZE_PROMPT": "00b36a04c8bc590d",
+    "RANK_POOL_PROMPT": "b2265d278f4d8af6"
+  },
+  "machine": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.13.15",
+    "torch": "2.11.0+cu128",
+    "cuda": "NVIDIA GeForce RTX 5060 Ti"
+  }
+}

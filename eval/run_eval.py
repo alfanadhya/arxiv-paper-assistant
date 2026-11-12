@@ -53,10 +53,12 @@ def load_cases(split: str, only: list[str] | None) -> list[dict]:
     return cases
 
 
-def build_message(case: dict, variant: str) -> str:
-    """The exact text a user would type. 'keyed' adds the year=/author= keys for the scope the request states."""
+def build_message(case: dict, variant: str, mode_key: str = "none") -> str:
+    """The exact text a user would type. 'keyed' adds the year=/author= keys for the scope the request states.
+    mode_key 'none' (default): no search= key, so the agent answers (it runs its own searches);
+    'search': prefix search= (the fixed search pipeline)."""
     query = " ".join(case["request"]["query"].split())
-    message = f"search= {query}"
+    message = f"search= {query}" if mode_key == "search" else query
     if variant == "plain":
         return message
     scope = case["request"].get("date_scope") or {}
@@ -93,7 +95,7 @@ def ollama_model_info(app) -> dict:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-def system_version(app, retriever, variant: str) -> dict:
+def system_version(app, retriever, variant: str, mode_key: str = "none") -> dict:
     """Everything that defines 'the system' for this run (§3 system version)."""
     import retriever_hybrid_rrf as rr
     import torch
@@ -119,6 +121,9 @@ def system_version(app, retriever, variant: str) -> dict:
                         for f in ("threeofus_main.py", "retriever_hybrid_rrf.py", "prompt_cleaning.py",
                                   "chatbot_diagnostics.py")},
         "input_variant": variant,
+        # mode_key 'none': no key, the agent answers; 'search': search= is typed (fixed pipeline)
+        "mode_key": mode_key,
+        "agent_enabled": getattr(app, "AGENT_ENABLED", False),
         "qdrant": {"url": app.QDRANT_URL, "collection": app.COLLECTION, "points_count": info.points_count,
                    "indexed_vectors_count": info.indexed_vectors_count, "status": str(info.status)},
         "embedding_model": {"id": rr.MODEL_ID, "revision": rr.MODEL_REVISION, "query_instruction": rr.QUERY_INSTRUCTION},
@@ -177,8 +182,51 @@ def stages(response, qdrant_calls: list) -> dict:
     }
 
 
-def run_case(app, case: dict, variant: str, qdrant_log: list) -> dict:
-    message = build_message(case, variant)
+def agent_trace(response, calls: list) -> dict:
+    """Trace fields for an agent answer (no key sent). The agent may search several times; every search counts:
+    qdrant = all its Qdrant lists merged; rerank = every reranked hit, merged by reranker score (scores of different
+    queries are compared as they are); sent_to_llm = the papers the tools returned to the model; shown = cited.
+    parse = the filters the agent passed to search_papers (authors of all calls; the year range if all calls
+    agree, else the first call's)."""
+    searches = response.agent_searches
+    best: dict[str, dict] = {}
+    for s in searches:
+        for row in s["ranked"]:
+            pid = norm_id(row["arxiv_id"])
+            if pid not in best or row["rerank_score"] > best[pid]["rerank_score"]:
+                best[pid] = dict(row, arxiv_id=pid)
+    merged = sorted(best.values(), key=lambda r: -r["rerank_score"])
+    qdrant: dict[str, list] = {}
+    for c in calls:
+        lst = qdrant.setdefault(c["search"], [])
+        lst += [h["arxiv_id"] for h in c["hits"] if h["arxiv_id"] not in lst]
+    shown = [norm_id(h.arxiv_id) for h in response.papers]
+    returned = []
+    for s in searches:
+        returned += [norm_id(p) for p in s["returned"] if norm_id(p) not in returned]
+    authors = []
+    for s in searches:
+        authors += [a for a in s["authors"] if a not in authors]
+    ranges = {(s["year_from"], s["year_to"]) for s in searches}
+    y_from, y_to = (next(iter(ranges)) if len(ranges) == 1 else
+                    ((searches[0]["year_from"], searches[0]["year_to"]) if searches else (None, None)))
+    return {
+        "stages": {"qdrant": qdrant,
+                   "rerank_papers": [r["arxiv_id"] for r in merged if r["pool"] == "paper"],
+                   "rerank_surveys": [r["arxiv_id"] for r in merged if r["pool"] == "survey"],
+                   "sent_to_llm": returned, "llm_ranked": [], "shown_papers": shown, "shown_surveys": [],
+                   "shown": shown},
+        "candidates": [{"arxiv_id": r["arxiv_id"], "rerank_score": r["rerank_score"], "pool": r["pool"]}
+                       for r in merged],
+        "parse": {"topic": " | ".join(s["query"] for s in searches), "year": None, "year_from": y_from,
+                  "year_to": y_to, "authors": authors, "category": None, "survey_focus": False}
+        if searches else None,
+        "agent_searches": [dict(s, ranked=[r["arxiv_id"] for r in s["ranked"]]) for s in searches],
+    }
+
+
+def run_case(app, case: dict, variant: str, qdrant_log: list, mode_key: str = "none") -> dict:
+    message = build_message(case, variant, mode_key)
     qdrant_log.clear()
     started = time.perf_counter()
     try:
@@ -190,9 +238,10 @@ def run_case(app, case: dict, variant: str, qdrant_log: list) -> dict:
     latency = round(time.perf_counter() - started, 2)
     a = response.analysis
     shown_hits = [response.papers[n - 1] for n in response.top_papers] + [response.surveys[n - 1] for n in response.top_surveys]
-    # search_papers() makes 2 calls (topic, survey); an author retry makes 2 more. The last attempt is the one used.
+    # search_papers() makes 2 calls (topic, survey); an author retry makes 2 more. The last attempt is the one used
+    # by the search= pipeline; for the agent every attempt is one of its searches and all of them count.
     calls = [dict(call, search=("topic", "survey")[i % 2], attempt=i // 2 + 1) for i, call in enumerate(qdrant_log)]
-    return {
+    trace = {
         "case_id": case["case_id"],
         "message_sent": message,
         "crashed": False,
@@ -218,6 +267,11 @@ def run_case(app, case: dict, variant: str, qdrant_log: list) -> dict:
         "tokens": response.diagnostics.context_usage,
         "latency_s": latency,
     }
+    if response.mode == "agent":
+        extra = agent_trace(response, calls)
+        trace.update(extra)
+        trace["context_ids"] = extra["stages"]["sent_to_llm"]   # everything the tools returned to the model
+    return trace
 
 
 class Tee:
@@ -241,6 +295,8 @@ def main():
     ap.add_argument("--limit", type=int, help="only the first N cases (smoke test)")
     ap.add_argument("--input", choices=["keyed", "plain"], default="keyed",
                     help="keyed (default): add year=/author= keys for the stated scope; plain: natural text only")
+    ap.add_argument("--mode-key", choices=["none", "search"], default="none",
+                    help="none (default): no key, the agent answers; search: prefix search= (fixed pipeline)")
     ap.add_argument("--run-id", help="continue this run folder instead of starting a new one")
     ap.add_argument("--final", action="store_true", help="required for --split test/all: the test set is run ONCE (§9)")
     args = ap.parse_args()
@@ -253,7 +309,7 @@ def main():
     if not cases:
         raise SystemExit("No cases selected.")
 
-    run_id = args.run_id or f"{datetime.now():%Y%m%d-%H%M}_{args.split}_{args.input}" + ("_smoke" if args.limit else "")
+    run_id = args.run_id or f"{datetime.now():%Y%m%d-%H%M}_{args.split}_{args.input}" + ("_searchkey" if args.mode_key == "search" else "") + ("_smoke" if args.limit else "")
     out = RUNS / run_id
     if out.exists() and not args.run_id:
         raise SystemExit(f"{out} already exists; never overwrite a run (§47). Use --run-id to continue it.")
@@ -281,10 +337,10 @@ def main():
     print(f"Collection {app.COLLECTION}: {count:,} points" if count else "Collection point count unknown")
 
     version_file = out / "system_version.json"
-    version = system_version(app, retriever, args.input)
+    version = system_version(app, retriever, args.input, args.mode_key)
     if version_file.exists():
         old = json.loads(version_file.read_text(encoding="utf-8"))
-        changed = [k for k in ("git_commit", "code_hashes", "qdrant", "llm", "input_variant") if old.get(k) != version.get(k)]
+        changed = [k for k in ("git_commit", "code_hashes", "qdrant", "llm", "input_variant", "mode_key") if old.get(k) != version.get(k)]
         if changed:
             raise SystemExit(f"The system changed since this run started ({changed}); start a new run instead.")
     else:
@@ -299,7 +355,7 @@ def main():
 
     started = time.perf_counter()
     for i, case in enumerate(todo, start=1):
-        trace = run_case(app, case, args.input, qdrant_log)
+        trace = run_case(app, case, args.input, qdrant_log, args.mode_key)
         trace.update(run_id=run_id, system_version_ref="system_version.json", split=case["split"],
                      case_set_version=case["case_set_version"])
         with traces.open("a", encoding="utf-8") as f:

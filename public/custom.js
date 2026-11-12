@@ -246,8 +246,8 @@
   }, 1000);
 })();
 
-// 6. Mode banner in the middle of the top bar: the chat's remembered mode (search= / title= / analyze=).
-//    Python sends {type: "mode", mode} (app.set_mode) on a new chat, on resume and whenever a mode key is typed.
+// 6. Banner in the middle of the top bar: what the current message runs (search= / title= / the agent).
+//    Python sends {type: "mode", mode} (app.show_mode) for each message; null = neutral (new or reopened chat).
 (function () {
   const ID = "mode-banner";
   // Two example messages per mode (typed without the key while the mode is on)
@@ -256,8 +256,9 @@
                examples: ["transformers", "generative AI for construction industry year=2020-"] },
     title:   { label: "Title mode",   color: "#ca8a04",
                examples: ["Attention is all you need", "Deep residual learning for image recognition"] },
-    analyze: { label: "Analyze mode", color: "#ea580c",
-               examples: ["compare 1 and 2", "which of these papers use transformers?"] },
+    // any message without search= / title=: answered by the agent (tool calling)
+    ask:     { label: "Research mode", color: "#7c3aed",
+               examples: ["how are GNNs used for drug discovery?", "main approaches to RAG evaluation?"] },
   };
   let mode = null;
 
@@ -279,7 +280,7 @@
     }
     const m = MODES[mode];
     const text = m ? `${m.label} · e.g. "${m.examples[0]}" or "${m.examples[1]}"`
-                   : "No mode yet · start with search=, title= or analyze=";
+                   : "Ask anything · or start with search= or title=";
     banner.title = text;   // full text on hover when the top bar is too narrow
     if (banner.textContent !== text) banner.textContent = text;
     const color = m ? m.color : "#6b7280";

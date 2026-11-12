@@ -1,0 +1,264 @@
+{
+  "run_id": "20261112-1351_dev_keyed_smoke",
+  "system_version": {
+    "git_commit": "4e3a013972b777d2a0d551a14c0bae91e55f9e07",
+    "input_variant": "keyed",
+    "qdrant": {
+      "url": "http://localhost:6333",
+      "collection": "sebun_bge768_hybrid_full",
+      "points_count": 1104538,
+      "indexed_vectors_count": 2209076,
+      "status": "green"
+    },
+    "reranker_model": "BAAI/bge-reranker-base",
+    "llm": {
+      "model": "qwen3:4b",
+      "url": "http://localhost:11434",
+      "num_ctx": 8192,
+      "ollama": {
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "quantization": "Q4_K_M",
+        "parameter_size": "4.0B"
+      },
+      "temperatures_from_source": [
+        "0.6",
+        "0"
+      ],
+      "seeds_from_source": [
+        "42"
+      ]
+    }
+  },
+  "evaluator_version": {
+    "scorer": "score v1",
+    "protocol": "draft v0",
+    "cutoffs": {
+      "shown": "<=3 papers + <=5 surveys",
+      "candidates": "20 per Qdrant search",
+      "ndcg": 10
+    },
+    "aggregation": "macro mean over cases; None values excluded and counted",
+    "judge": null,
+    "human_auditors": "see audit.csv"
+  },
+  "overall": {
+    "n_cases": 2,
+    "crashed": 0,
+    "metrics": {
+      "recall_shown": {
+        "mean": 1.0,
+        "n": 1,
+        "excluded": 1
+      },
+      "recall_papers": {
+        "mean": 1.0,
+        "n": 1,
+        "excluded": 1
+      },
+      "candidate_recall_at_20": {
+        "mean": 1.0,
+        "n": 1,
+        "excluded": 1
+      },
+      "precision_shown": {
+        "mean": 1.0,
+        "n": 2,
+        "excluded": 0
+      },
+      "rr": {
+        "mean": 1.0,
+        "n": 1,
+        "excluded": 1
+      },
+      "ndcg_at_10": {
+        "mean": 0.0,
+        "n": 1,
+        "excluded": 1
+      }
+    },
+    "q1_filters_correct": {
+      "k": 0,
+      "n": 0
+    },
+    "gate": {
+      "TP": 2
+    },
+    "failure_labels": {
+      "pass_retrieval": 2
+    }
+  },
+  "by_split": {
+    "dev": {
+      "n_cases": 2,
+      "crashed": 0,
+      "metrics": {
+        "recall_shown": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 1
+        },
+        "recall_papers": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 1
+        },
+        "candidate_recall_at_20": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 1
+        },
+        "precision_shown": {
+          "mean": 1.0,
+          "n": 2,
+          "excluded": 0
+        },
+        "rr": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 1
+        },
+        "ndcg_at_10": {
+          "mean": 0.0,
+          "n": 1,
+          "excluded": 1
+        }
+      },
+      "q1_filters_correct": {
+        "k": 0,
+        "n": 0
+      },
+      "gate": {
+        "TP": 2
+      },
+      "failure_labels": {
+        "pass_retrieval": 2
+      }
+    }
+  },
+  "by_slice": {
+    "direct_specific": {
+      "n_cases": 1,
+      "crashed": 0,
+      "metrics": {
+        "recall_shown": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 0
+        },
+        "recall_papers": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 0
+        },
+        "candidate_recall_at_20": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 0
+        },
+        "precision_shown": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 0
+        },
+        "rr": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 0
+        },
+        "ndcg_at_10": {
+          "mean": 0.0,
+          "n": 1,
+          "excluded": 0
+        }
+      },
+      "q1_filters_correct": {
+        "k": 0,
+        "n": 0
+      },
+      "gate": {
+        "TP": 1
+      },
+      "failure_labels": {
+        "pass_retrieval": 1
+      }
+    },
+    "filter_year": {
+      "n_cases": 1,
+      "crashed": 0,
+      "metrics": {
+        "recall_shown": {
+          "mean": null,
+          "n": 0,
+          "excluded": 1
+        },
+        "recall_papers": {
+          "mean": null,
+          "n": 0,
+          "excluded": 1
+        },
+        "candidate_recall_at_20": {
+          "mean": null,
+          "n": 0,
+          "excluded": 1
+        },
+        "precision_shown": {
+          "mean": 1.0,
+          "n": 1,
+          "excluded": 0
+        },
+        "rr": {
+          "mean": null,
+          "n": 0,
+          "excluded": 1
+        },
+        "ndcg_at_10": {
+          "mean": null,
+          "n": 0,
+          "excluded": 1
+        }
+      },
+      "q1_filters_correct": {
+        "k": 0,
+        "n": 0
+      },
+      "gate": {
+        "TP": 1
+      },
+      "failure_labels": {
+        "pass_retrieval": 1
+      }
+    }
+  },
+  "slice_x_failure": {
+    "direct_specific": {
+      "pass_retrieval": 1
+    },
+    "filter_year": {
+      "pass_retrieval": 1
+    }
+  },
+  "hypotheses": {
+    "H1": {
+      "population": "test split, slice ls_specific",
+      "case_pass": "recall_shown == 1",
+      "k": 0,
+      "n": 0,
+      "rate": null,
+      "wilson95": null,
+      "mean_recall": null,
+      "supported": null,
+      "note": "supported only if the lower Wilson bound >= 60%"
+    },
+    "H2": {
+      "status": "needs the human audit of citations (audit.csv); search mode has no cited summary"
+    }
+  },
+  "latency_s": {
+    "mean": 21.91
+  },
+  "notes": [
+    "Answer (A1-A5) and attribution (C1-C4) metrics need the human audit in audit.csv.",
+    "No gate score exists in search mode: G2 (threshold) is not applicable; G1 uses answered = papers shown.",
+    "Dependence: LitSearch questions come from a few ACL/ICLR paper sets; slices share topics (§33)."
+  ]
+}

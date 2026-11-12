@@ -1,0 +1,33 @@
+Run 20261112-1431_dev_keyed: 22 cases (dev, input=keyed)
+Loading the app, models and Qdrant connection...
+Loading the embedding models and connecting to Qdrant (http://localhost:6333, 'sebun_bge768_hybrid_full')...
+Loading the reranker BAAI/bge-reranker-base on cuda...
+Collection sebun_bge768_hybrid_full: 1,104,538 points
+WARNING: uncommitted changes ['M app.py', ' M eval/run_eval.py', ' M eval/score.py', ' M public/custom.js', ' M threeofus_main.py', '?? eval/runs/', '?? tests/']; the git commit alone won't identify this system.
+0 cases already done, 22 to run.
+
+[1/22] m00      24.7s  5 shown
+[2/22] m01      13.6s  1 shown
+[3/22] m04      17.2s  3 shown
+[4/22] m07      13.7s  5 shown
+[5/22] m10      10.1s  5 shown
+[6/22] m12      30.2s  1 shown
+[7/22] m14      13.6s  5 shown
+[8/22] m16       4.7s  0 shown
+[9/22] m18      27.2s  3 shown
+[10/22] m19      20.3s  0 shown
+[11/22] ls002    13.1s  3 shown
+[12/22] ls003    17.3s  2 shown
+[13/22] ls004    38.2s  3 shown
+[14/22] ls008    47.2s  1 shown
+[15/22] ls011    77.4s  3 shown
+[16/22] ls013    35.3s  1 shown
+[17/22] ls017    50.2s  4 shown
+[18/22] ls027    45.2s  2 shown
+[19/22] ls028    39.9s  3 shown
+[20/22] ls032    28.6s  2 shown
+[21/22] ls038    17.8s  2 shown
+[22/22] ls040    38.6s  3 shown
+
+Done in 624s. Traces: C:\Users\COM\Desktop\rag course proj\eval\runs\20261112-1431_dev_keyed\traces.jsonl
+Score it with:  python -X utf8 eval/score.py eval\runs\20261112-1431_dev_keyed

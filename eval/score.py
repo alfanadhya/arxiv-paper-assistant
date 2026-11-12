@@ -146,6 +146,9 @@ def stage_ranks(trace: dict, pid: str) -> dict:
         ranks["dropped_at"] = None
     elif not (q_topic or q_survey):
         ranks["dropped_at"] = "qdrant"
+    elif trace.get("mode") == "agent":   # no survey pool and no LLM ranking: the tools return the top k
+        ranks["dropped_at"] = ("rerank (not in the top k returned to the agent)" if not ranks["sent_to_llm"]
+                               else "agent (returned to the model but not cited)")
     elif pool == "survey":
         ranks["dropped_at"] = "rerank (survey pool: below the top 5 shown)"
     elif not ranks["sent_to_llm"]:

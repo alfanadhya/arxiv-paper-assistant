@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Callable
 
 from dotenv import load_dotenv
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
+from langchain_core.tools import StructuredTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field, field_validator
@@ -25,7 +27,7 @@ from chatbot_diagnostics import (Diagnostics, format_diagnostics, llm_config,
                                  start_context_tracking, stop_context_tracking)
 from prompt_cleaning import (MODE_EXAMPLES, SEARCH_EXAMPLE, ParsedMessage, collapse_repeats,
                              length_problem, parse_message, remove_symbols)   # input checks (steps 1-4)
-from retriever_hybrid_rrf import MODELS_CACHE_DIR, MetadataIntent, build_retriever
+from retriever_hybrid_rrf import MODELS_CACHE_DIR, Evidence, MetadataIntent, build_retriever, split_payload
 
 load_dotenv()
 
@@ -38,12 +40,6 @@ OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")   # keep qwen loaded b
 SHOW_REASONING = os.getenv("SHOW_REASONING", "0") == "1"
 
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")   # cross-encoder reranker
-# qwen3:4b here is a thinking-only build (its template always opens <think>), so chat runs with reasoning on:
-# Ollama then returns the thinking separately and only the answer is shown. The token cap includes the thinking,
-# so it is generous; the visible reply is kept short by the prompt and by CHAT_MAX_WORDS / CHAT_MAX_SENTENCES.
-CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "1024"))   # cap on generated tokens (thinking + answer)
-CHAT_MAX_WORDS = int(os.getenv("CHAT_MAX_WORDS", "60"))       # visible chat reply is trimmed to this
-CHAT_MAX_SENTENCES = 2
 
 K_RETRIEVE = 20          # candidates fetched from Qdrant (per search)
 K_FINAL = 6              # (kept) old fixed number of research papers passed to the model
@@ -58,18 +54,15 @@ RANKING_OUTPUT_RESERVE = int(os.getenv("RANKING_OUTPUT_RESERVE", "3000"))   # to
 CHARS_PER_TOKEN = 3.5    # rough, conservative chars/token estimate for the context budget
 MAX_HISTORY_TURNS = 10   # question/answer pairs kept for follow-up questions
 
-# analyze= references to shown papers: [2], 2, S1, [S1] (labels of the last result) or an arXiv id
-ANALYZE_REF_RE = re.compile(r"(?<![\w.])\[?(S?\d{1,2})\]?(?![\w.])|\b(\d{4}\.\d{4,5})(?:v\d+)?\b", re.IGNORECASE)
-ANALYZE_MAX_PAPERS = 8   # papers given to the LLM for one analyze= question (3 papers + 5 surveys)
-# Generated-token cap (thinking + answer). qwen3 thinks first; 2048 was used up by thinking over 8 abstracts.
-ANALYZE_MAX_TOKENS = int(os.getenv("ANALYZE_MAX_TOKENS", "4096"))
-# analyze= without a label: a singular reference means the best match; anything else -> ask for a label
-SINGULAR_REF_RE = re.compile(r"\b(?:this|that|the)\s+(?:paper|one|work|article|study|survey|result)\b|"
-                             r"\bit\b|\bits\b|\bthe\s+best(?:\s+(?:one|match|paper))?\b|\bbest\s+match\b",
-                             re.IGNORECASE)
-# Input filter: messages with neither search= nor title= get a fixed reminder without any LLM call.
-# Set True to answer them with the chat model instead (chat_reply, kept for later use cases).
-CHAT_WITH_LLM = False
+# Messages without search= / title= are answered by the agent (run_agent): the LLM calls the search tools
+# itself (search, look up a paper, read the papers shown). AGENT=0 in .env sends them to the normal search.
+AGENT_ENABLED = os.getenv("AGENT", "1").strip().lower() not in ("0", "false", "no", "off")
+AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "4"))      # tool rounds before the model must answer
+AGENT_MAX_TOKENS = int(os.getenv("AGENT_MAX_TOKENS", "4096")) # generated-token cap per step (thinking + answer)
+AGENT_DEFAULT_K = 5        # papers one search_papers call returns unless the model asks for more
+AGENT_MAX_K = 8            # most papers one call may return
+AGENT_RERANK_POOL = 40     # Qdrant hits reranked per call
+AGENT_ABSTRACT_CHARS = 700 # abstract length the model sees per paper in search results (get_paper: full)
 TITLE_EXACT = 0.95       # title similarity treated as an exact match; below it the user is told
                          # "exact title match not found; best available match"
 TITLE_CLOSE = 0.80       # (kept) old cut-off for switching to the reranker
@@ -240,7 +233,7 @@ class PoolRanking(BaseModel):
 @dataclass
 class SearchResponse:
     prompt: str
-    mode: str = "search"                                # "search" (database) or "chat" (direct LLM answer)
+    mode: str = "search"                                # "search", "title" or "agent" (tool-calling answer)
     answer: str = ""                                    # chat mode: the LLM's reply
     search_prompt: str = ""                             # prompt after follow-up rewrite (= prompt if none)
     ranking_fallback: bool = False                      # True if the model failed and retrieval order was used
@@ -257,8 +250,10 @@ class SearchResponse:
     active_mode: str | None = None                      # mode remembered for the chat after this turn (banner)
     request: str = ""                                   # the user's request with its year=/author= keys (LLM context)
     filters: str = "none"                               # metadata filters Qdrant used (describe_filters), LLM context
-    memory_note: str = ""                               # analyze=: papers used, kept in the conversation memory only
-    memory_papers: list[str] = field(default_factory=list)   # analyze=: arXiv ids of the papers used
+    memory_note: str = ""                               # agent: papers cited, kept in the conversation memory only
+    memory_papers: list[str] = field(default_factory=list)   # agent: arXiv ids of the papers cited
+    # agent: one entry per search_papers call (filters, reranked ids + scores, ids returned to the model), for eval
+    agent_searches: list[dict] = field(default_factory=list)
     criteria: list[str] = field(default_factory=list)
     why_best: str = ""
     reasoning: str = ""
@@ -346,39 +341,6 @@ REWRITE_PROMPT = ChatPromptTemplate.from_messages([
     ("system", REWRITE_SYSTEM_PROMPT),
     MessagesPlaceholder("history"),
     ("human", "{question}"),
-])
-
-CHAT_SYSTEM_PROMPT = (
-    "You are the front desk of an arXiv paper search tool for computer science "
-    f"({DB_COVERAGE}). The user's message has no 'search=' key, so no search was run. "
-    "Reply in at most 2 short sentences (under about 40 words): "
-    "remind the user to write 'search=' before a topic to search the papers (or 'title=' to find one paper "
-    "by its exact title; optional filters 'year=' and 'author='), and give one example built from their own "
-    "topic, e.g. 'search= graph neural networks for drug discovery year=2020-'. "
-    "If the message is a simple question (a greeting, or a one-line question about an earlier result in this "
-    "conversation), you may first answer it in one short sentence. "
-    "Do NOT analyze, summarize, explain, rewrite or expand on the text the user provided, do not write lists "
-    "or headings, and do not invent papers, authors, ids or results.")
-
-CHAT_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", CHAT_SYSTEM_PROMPT),
-    MessagesPlaceholder("history"),
-    ("human", "{question}"),
-])
-
-# analyze= : answer a question about papers already shown, grounded only in their title/authors/year/abstract.
-ANALYZE_SYSTEM_PROMPT = (
-    "You answer questions about computer science research papers that were shown to the user. "
-    "Use ONLY the papers given in the message (title, authors, year, abstract); do not use outside knowledge "
-    "about them and never invent results, numbers, datasets or papers. Refer to each paper only by its label, "
-    "e.g. [1] or [S2]; do not list or repeat the paper titles. If the abstracts do not contain what is asked, "
-    "say so plainly. "
-    "Be concise: at most about 150 words, in short paragraphs or a few bullet points.")
-
-ANALYZE_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", ANALYZE_SYSTEM_PROMPT),
-    MessagesPlaceholder("history"),
-    ("human", "Papers:\n\n{papers}\n\nQuestion: {question}"),
 ])
 
 RANK_POOL_PROMPT = ChatPromptTemplate.from_messages([
@@ -589,21 +551,6 @@ def get_rewrite_chain():
     return REWRITE_PROMPT | rewriter.with_structured_output(RewriteResult)
 
 
-# Build (once) the direct-chat chain (messages without search= / title=).
-@functools.lru_cache(maxsize=1)
-def get_chat_chain():
-    # reasoning=True: the thinking-only qwen3 build thinks anyway; this way Ollama returns the thinking separately
-    # and StrOutputParser streams only the answer. num_predict is a safety cap (thinking + answer).
-    return CHAT_PROMPT | ollama_llm(temperature=0.7, reasoning=True, num_predict=CHAT_MAX_TOKENS) | StrOutputParser()
-
-
-# Build (once) the analyze= chain: grounded answer about shown papers; thinking is returned separately.
-@functools.lru_cache(maxsize=1)
-def get_analyze_chain():
-    return ANALYZE_PROMPT | ollama_llm(temperature=0.3, reasoning=True,
-                                       num_predict=ANALYZE_MAX_TOKENS) | StrOutputParser()
-
-
 # Remove model thinking from a reply: '<think>...</think>' blocks, or everything up to a lone '</think>'
 # (the thinking-only qwen3 template opens <think> itself, so leaked thinking has no opening tag).
 def strip_thinking(text: str) -> str:
@@ -612,14 +559,6 @@ def strip_thinking(text: str) -> str:
         text = re.split(r"</think>", text, flags=re.IGNORECASE)[-1]
     text = re.sub(r"<think>.*", "", text, flags=re.DOTALL | re.IGNORECASE)   # unclosed (cut off) thinking
     return text.strip()
-
-
-# Keep a chat reply brief: at most CHAT_MAX_SENTENCES sentences and CHAT_MAX_WORDS words.
-def brief_reply(text: str) -> str:
-    sentences = re.split(r"(?<=[.!?])\s+", " ".join(text.split()))
-    reply = " ".join(sentences[:CHAT_MAX_SENTENCES])
-    words = reply.split()
-    return " ".join(words[:CHAT_MAX_WORDS]) + ("..." if len(words) > CHAT_MAX_WORDS else "")
 
 
 _reranker = None
@@ -654,17 +593,17 @@ def add_turn(history: list[dict], role: str, content: str, max_turns: int = MAX_
 
 
 # Tags saved with a question/answer pair (by code, no model call), read by select_history in later turns:
-#   mode   : "search" / "title" / "analyze" / "chat"
+#   mode   : "search" / "title" / "agent"
 #   ok     : False if the turn failed (error, no results, no answer) -> never read again
-#   papers : arXiv ids the turn showed (search/title) or used (analyze)
+#   papers : arXiv ids the turn showed (search/title) or cited (agent)
 def memory_tags(r: SearchResponse) -> dict:
-    if r.mode == "analyze":
+    if r.mode == "agent":
         papers = list(r.memory_papers)
     elif r.mode in ("search", "title"):
         papers = [r.papers[n - 1].arxiv_id for n in r.top_papers] + [r.surveys[n - 1].arxiv_id for n in r.top_surveys]
     else:
         papers = []
-    ok = not r.errors and (bool(r.answer) if r.mode in ("analyze", "chat") else bool(papers))
+    ok = not r.errors and (bool(r.answer) if r.mode == "agent" else bool(papers))
     return {"mode": r.mode, "ok": ok, "papers": papers}
 
 
@@ -697,11 +636,9 @@ def select_history(history: list[dict] | None, paper_ids: set[str] | None = None
 
 # Assistant turn text for the history: summary line plus numbered picks with arXiv ids.
 def assistant_turn_text(r: SearchResponse) -> str:
-    if r.mode == "analyze":   # the papers used are remembered here (not shown in the answer)
+    if r.mode == "agent":   # the papers cited are remembered here (not shown in the answer)
         body = r.answer[:2000] if r.answer else "No answer: " + " ".join(r.errors)
         return f"{r.memory_note}\n{body}" if r.memory_note else body
-    if r.mode == "chat":
-        return r.answer[:2000] if r.answer else "No answer: " + " ".join(r.errors)
     if r.errors:
         return "No results: " + " ".join(r.errors)
     topic = r.analysis.corrected_query if r.analysis else r.search_prompt
@@ -778,6 +715,64 @@ def run_analyzer(text: str, title_mode: bool = False, request: str | None = None
                          unclear_reason=check.unclear_reason), notes
 
 
+# The author= names (and the question words around them) removed from a search topic before the spell-check
+# LLM sees it: the author is already a Qdrant filter, and a name in the topic only adds noise to the embeddings
+# and the reranker (eval m07: 'what has Iryna Gurevych published on misleading charts?' became the target
+# 'Iryna Gurev: misleading charts'). The full name is removed anywhere; the last name alone only next to a cue
+# ('by Gurevych', "Gurevych's") so a topic like 'Turing test' survives author=Alan Turing.
+# Returns (topic, diagnostic or None); the text is kept as it was if nothing would be left.
+def strip_author_names(text: str, authors: list[str]) -> tuple[str, str | None]:
+    original, flags = text, re.IGNORECASE
+    for name in authors:
+        if "," in name:                                       # 'Gurevych, Iryna' -> 'Iryna Gurevych'
+            last, first = name.split(",", 1)
+            name = f"{first.strip()} {last.strip()}"
+        tokens = name.split()
+        if not tokens:
+            continue
+        full = r"\s+".join(re.escape(t) for t in tokens)
+        variants = [(full, False)]
+        if len(tokens) > 1 and len(tokens[-1]) >= 3:
+            variants.append((re.escape(tokens[-1]), True))    # last name alone: only with a cue
+        for pattern, needs_cue in variants:
+            named = rf"{pattern}(?:['’]s)?"
+            text = re.sub(rf"\bwhat\s+(?:has|have|did|does|do)\s+{named}\s+(?:published|publish|written|write|"
+                          rf"wrote|done|worked)\s*(?:on|about|in|regarding)?(?!\w)", " ", text, flags=flags)
+            text = re.sub(rf"\b(?:papers?|works?|research|publications?|articles?)\s+(?:by|from|of)\s+{named}(?!\w)",
+                          " ", text, flags=flags)
+            text = re.sub(rf"\b(?:(?:authored|written)\s+by|by|from)\s+{named}(?!\w)", " ", text, flags=flags)
+            text = re.sub(rf"\b{pattern}['’]s(?!\w)", " ", text, flags=flags)
+            if not needs_cue:
+                text = re.sub(rf"\b{pattern}(?!\w)", " ", text, flags=flags)
+    text = " ".join(text.split()).strip(" ,;:?.!-")
+    text = re.sub(r"^(?:on|about|regarding|in)\s+", "", text, flags=flags)
+    if text == " ".join(original.split()):
+        return original, None
+    if not re.search(r"[^\W_]", text):
+        return original, "[validation] Author names not removed from the topic: nothing would be left."
+    return text, f"[validation] Removed the author name(s) from the topic (author= is a filter): '{original}' -> '{text}'."
+
+
+# Distinct author names on the hits whose last name matched one of `authors` (after the last-name-only retry),
+# e.g. ['Boris Gurevych'], so the user sees who was actually matched.
+def last_name_matches(hits: list, authors: list[str], limit: int = 5) -> list[str]:
+    lasts = set()
+    for n in authors:
+        c = author_condition(n, use_initials=False)
+        if c:
+            lasts.update(c[1])
+    names: list[str] = []
+    for h in hits:
+        for raw in hit_authors(h):
+            last = raw.split(",", 1)[0] if "," in raw else raw.split()[-1] if raw.split() else ""
+            shown = " ".join(p.strip() for p in reversed(raw.split(",", 1))) if "," in raw else raw
+            if normalize_author(last) in lasts and shown not in names:
+                names.append(shown)
+                if len(names) >= limit:
+                    return names
+    return names
+
+
 # Run the analyzer on the search=/title= text (spelling fix + clarity check only) and validate; returns
 # (check, text without the 'category:' marker). Years and authors come ONLY from the parsed year=/author=
 # keys (meta); anything the model guesses is ignored and noted.
@@ -785,7 +780,12 @@ def analyze_query(prompt: str, title_mode: bool = False,
                   meta: ParsedMessage | None = None) -> tuple[QueryCheck, str]:
     meta = meta or ParsedMessage(mode="title" if title_mode else "search", text=prompt)
     category, rest, category_warning = parse_category(prompt)
+    strip_note = None
+    if meta.authors and not title_mode:   # title lookups keep the title exactly as typed
+        rest, strip_note = strip_author_names(rest, meta.authors)
     analysis, notes = run_analyzer(rest, title_mode, request=meta.with_meta(rest))
+    if strip_note:
+        notes.insert(0, strip_note)
     analysis.authors = list(meta.authors)
     analysis.year, analysis.year_from, analysis.year_to = meta.year, meta.year_from, meta.year_to
     check = validate(rest, analysis, keep_wording=title_mode, trusted_meta=True)
@@ -908,7 +908,6 @@ def warmup(log: LogFn = lambda msg: None) -> int | None:
     get_chains()
     get_retry_analyze_chain()
     get_rewrite_chain()
-    get_chat_chain()
     get_reranker(log)
     return retriever.points_count
 
@@ -948,7 +947,7 @@ def health_check(log: LogFn = lambda msg: None) -> list[str]:
                                                       f"loaded now ({time.time() - t:.1f} s)"))
 
     # LangChain chains: cheap objects, cached after the first call
-    get_chains(), get_retry_analyze_chain(), get_rewrite_chain(), get_chat_chain(), get_title_chain()
+    get_chains(), get_retry_analyze_chain(), get_rewrite_chain(), get_title_chain()
 
     # Ollama: is qwen loaded (with our context size)? If not, an empty request loads it.
     try:
@@ -1223,6 +1222,12 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
                                         "initial; retried with last name only.")
             paper_pool, survey_pool, origin = search_papers(a, response.survey_focus, log, use_initials=False)
             used_initials = False
+            matched = last_name_matches(paper_pool + survey_pool, a.authors)
+            if matched:   # tell the user who was actually matched: may be a different person with that last name
+                response.warnings.append(
+                    f"No papers by {' & '.join(a.authors)} with that first name; showing papers by authors with "
+                    f"the same last name: {', '.join(matched)}. These may be different people.")
+                response.diagnostics.append(f"[validation] Last-name-only matches: {', '.join(matched)}.")
     except Exception as exc:
         response.errors.append(f"Qdrant search failed: {type(exc).__name__}: {exc}")
         return response
@@ -1421,142 +1426,274 @@ def stream_text(chain, inputs: dict, on_token: TokenFn | None = None, config: di
     return "".join(parts)
 
 
-# Direct chat with the LLM (no database search), using the conversation history.
-# on_token (optional) receives the reply while it is being written; the full reply is always returned.
-def chat_reply(message: str, log: LogFn = lambda msg: print(msg, flush=True),
-               history: list[dict] | None = None, on_token: TokenFn | None = None) -> SearchResponse:
-    response = SearchResponse(prompt=message, mode="chat", search_prompt=message,
-                              diagnostics=Diagnostics.for_chat(message))
-    try:
-        log(f"Asking Ollama ({OLLAMA_MODEL})...")
-        raw = stream_text(get_chat_chain(), {"history": history or [], "question": message}, on_token)
-        cleaned = strip_thinking(raw)
-        response.answer = brief_reply(cleaned)
-        if cleaned != raw.strip():
-            response.diagnostics.append("[mode] Removed model thinking that leaked into the reply.")
-        if response.answer != cleaned:
-            response.diagnostics.append(f"[mode] Reply trimmed to {CHAT_MAX_SENTENCES} sentences / "
-                                        f"{CHAT_MAX_WORDS} words.")
-        if not response.answer:
-            response.answer = search_reminder(message)
-            response.diagnostics.append(f"[mode] FALLBACK: model returned an empty answer ({len(raw)} raw chars, "
-                                        "likely all thinking within the token cap) -> standard search reminder.")
-    except Exception as exc:
-        response.answer = search_reminder(message)
-        response.diagnostics.append(f"[mode] FALLBACK: Ollama request failed ({type(exc).__name__}: {exc}) "
-                                    "-> standard search reminder.")
-    return response
+# Most authors listed for one paper (get_paper), capped for huge collaborations.
+AGENT_MAX_AUTHORS = 40
 
 
-# Papers an analyze= question refers to. shown = the last result's papers in display order, each a paper dict
-# (app.to_paper) with its current "label" ("1", "S2") and "best" (the LLM's top pick); known = every paper
-# shown in this chat by arXiv id.
-# References: labels ([2], 2, S1) of the last result, or arXiv ids of any paper shown. No label: a singular
-# reference ("this paper", "it", "the best one") -> the best match only; anything else -> no papers, and the
-# user is asked for a label. Returns (papers, unknown references).
-def resolve_paper_refs(question: str, shown: list[dict], known: dict[str, dict]) -> tuple[list[dict], list[str]]:
-    by_label = {p["label"].upper(): p for p in shown}
-    picked, unknown = [], []
-    for m in ANALYZE_REF_RE.finditer(question):
-        label, arxiv_id = m.group(1), m.group(2)
-        paper = by_label.get(label.upper()) if label else known.get(arxiv_id)
-        if paper is None:
-            unknown.append(f"[{label}]" if label else arxiv_id)
-        elif all(p["arxiv_id"] != paper["arxiv_id"] for p in picked):
-            picked.append(paper)
-    if not picked and not unknown and SINGULAR_REF_RE.search(question):
-        picked = [p for p in shown if p.get("best")]   # "this paper", "it": the best match, if one is known
-    # anything else (or no known best match): nothing -> run_analyze asks the user for a label
-    return picked[:ANALYZE_MAX_PAPERS], unknown
+# --------------------------------------------------------------------------- agent (tool calling)
+# Every message without search= / title=: the LLM calls the tools below in a loop (Ollama tool calling via
+# LangChain bind_tools) until it can answer, then answers citing arXiv ids. Only ids a tool returned count as
+# sources; the answer's ids are renumbered [1], [2], ... to match the paper cards shown under it.
+AGENT_SYSTEM_PROMPT = f"""You are a research assistant for a database of arXiv computer science papers ({DB_COVERAGE}).
+Answer the user's question using ONLY papers returned by your tools.
+
+Tools:
+- search_papers(query, author, year_from, year_to, k): hybrid search + reranker. Use a short focused topic as
+  query. Use author / year filters ONLY when the question names them; never add a year range on your own (query may be empty when author is given).
+  Split a question with several parts into several searches.
+- get_paper(arxiv_id): the full abstract and ALL authors of one paper, when a search snippet is not enough
+  (search results list at most 5 authors).
+- list_current_results(): the papers the user is looking at now (labels 1, 2, S1, ...), when the question
+  refers to them.
+
+Work in at most {AGENT_MAX_STEPS} tool rounds, then answer in at most about 200 words, in short paragraphs or
+bullets. Cite every claim with the paper's arXiv id in square brackets, e.g. [2105.01234]. Never cite an id a
+tool did not return, and never invent papers, results, numbers or datasets. If the papers found do not answer
+the question, say so plainly.
+
+Questions about the papers shown (by label, e.g. "compare 1 and 2", "list all authors of 1 and 3", "which is
+newest?") are answered from them; call get_paper for details the listing lacks. Greetings, thanks or questions
+about this tool need no tools: answer in one or two sentences."""
+
+ARXIV_ID_RE = re.compile(r"\b(\d{4}\.\d{4,5})(?:v\d+)?\b")
+# One citation in the agent's answer: the id with optional brackets and an optional 'arXiv:' / 'arXiv ' prefix
+CITATION_RE = re.compile(r"(?:\[\s*)?(?:\barxiv\s*:?\s*)?\b(\d{4}\.\d{4,5})(?:v\d+)?\b(?:\s*\])?", re.IGNORECASE)
 
 
-# One paper as a prompt block: '[2] Title (2021; A, B, C et al.)' + abstract.
-def paper_block(p: dict) -> str:
-    authors = p.get("authors") or []
-    names = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "")
-    return f"[{p['label']}] {p['title']} ({p.get('year') or 'year unknown'}; {names or 'authors unknown'})\n" \
-           f"{p.get('abstract', '')}"
+# Abstract of a hit (its text is 'title\n\nabstract').
+def hit_abstract(hit) -> str:
+    return hit.text.split("\n\n", 1)[-1]
 
 
-# analyze= : answer a question about papers already shown in this chat (no database search).
-# on_token (optional) receives the answer while it is being written; the full answer is always returned.
-def run_analyze(question: str, shown: list[dict] | None, known: dict[str, dict] | None,
-                log: LogFn = lambda msg: print(msg, flush=True), history: list[dict] | None = None,
-                on_token: TokenFn | None = None) -> SearchResponse:
-    response = SearchResponse(prompt=question, mode="analyze", search_prompt=question)
+# Author list of a hit's metadata (stored as a list or as 'A; B').
+def hit_authors(hit) -> list[str]:
+    authors = hit.metadata.get("authors") or []
+    return authors.split("; ") if isinstance(authors, str) else [str(a) for a in authors]
+
+
+# One paper as the model sees it in a tool result.
+def agent_paper(hit, abstract_chars: int | None = AGENT_ABSTRACT_CHARS) -> dict:
+    abstract = hit_abstract(hit)
+    if abstract_chars and len(abstract) > abstract_chars:
+        abstract = abstract[:abstract_chars] + "..."
+    authors = hit_authors(hit)
+    if abstract_chars:   # search results: short author list; get_paper (abstract_chars=None): all of them
+        authors = authors[:5] + (["et al."] if len(authors) > 5 else [])
+    return {"arxiv_id": hit.arxiv_id, "title": hit.title, "year": year_of(hit) or None,
+            "authors": authors[:AGENT_MAX_AUTHORS], "abstract": abstract}
+
+
+def to_int(value) -> int | None:
+    m = YEAR_RE.search(str(value)) if value not in (None, "") else None
+    return int(m.group(1)) if m else None
+
+
+# The tools for one agent turn. `found` collects every paper a tool returned (arXiv id -> Evidence) so the
+# answer's citations can be checked; `steps` collects one diagnostic line per call.
+def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[str, dict], log: LogFn,
+                vouched: set | None = None, searches: list | None = None) -> list:
+    vouched = vouched if vouched is not None else set()   # ids a tool returned that have no search hit (shown papers)
+    searches = searches if searches is not None else []   # one record per search call (eval trace)
+    def search(query: str = "", author: str = "", year_from: int | None = None, year_to: int | None = None,
+               k: int = AGENT_DEFAULT_K) -> str:
+        topic = " ".join(str(query or "").split())
+        authors = [a.strip() for a in re.split(r";|\band\b", str(author or "")) if a.strip()]
+        y_from, y_to = to_int(year_from), to_int(year_to)
+        if y_from and y_to and y_from > y_to:
+            y_from, y_to = y_to, y_from
+        # a bound at or beyond the database's own range filters nothing: drop it (e.g. 2007-2026 = no filter)
+        y_from = y_from if y_from and y_from > DB_FIRST_YEAR else None
+        y_to = y_to if y_to and y_to < DB_LAST_YEAR else None
+        try:
+            k = max(1, min(int(k or AGENT_DEFAULT_K), AGENT_MAX_K))
+        except (TypeError, ValueError):
+            k = AGENT_DEFAULT_K
+        call = f"search_papers(query='{topic}', author='{'; '.join(authors)}', years={y_from or ''}-{y_to or ''}, k={k})"
+        if not topic and not authors:
+            steps.append(f"[agent] {call} -> refused: no query and no author.")
+            return json.dumps({"error": "Give a query or an author."})
+        log(f"Searching: {topic or 'papers'}" + (f" by {', '.join(authors)}" if authors else "") + "...")
+        a = QueryAnalysis(corrected_query=topic or " ".join(authors), authors=authors,
+                          year_from=y_from, year_to=y_to)
+        papers, surveys, _ = search_papers(a, False, log)
+        last_name_only = []
+        if not papers and not surveys and authors:   # 'Iryna Gurevych' -> also try the last name only
+            papers, surveys, _ = search_papers(a, False, log, use_initials=False)
+            last_name_only = last_name_matches(papers + surveys, authors)
+        pool, seen = [], set()
+        for h in papers + surveys:
+            if h.arxiv_id not in seen:
+                seen.add(h.arxiv_id)
+                pool.append(h)
+        ranked, scores = rerank_hits(a.corrected_query, pool[:AGENT_RERANK_POOL]) if pool else ([], [])
+        top = ranked[:k]
+        searches.append({"query": topic, "authors": authors, "year_from": y_from, "year_to": y_to, "k": k,
+                         "last_name_only": bool(last_name_only),
+                         "ranked": [{"arxiv_id": h.arxiv_id, "rerank_score": round(s, 5),
+                                     "pool": "survey" if is_survey(h) else "paper"} for h, s in zip(ranked, scores)],
+                         "returned": [h.arxiv_id for h in top]})
+        for h in top:
+            found.setdefault(h.arxiv_id, h)
+        steps.append(f"[agent] {call} -> {len(top)} of {len(pool)}: " + ", ".join(h.arxiv_id for h in top) + "."
+                     + (f" Last-name-only matches: {', '.join(last_name_only)}." if last_name_only else ""))
+        result = {"papers": [agent_paper(h) for h in top]} if top else \
+            {"papers": [], "note": "No papers matched; try a broader query or fewer filters."}
+        if top and last_name_only:
+            result["note"] = (f"No paper by {' & '.join(authors)} with that first name. These papers are by authors "
+                              f"with the same last name ({', '.join(last_name_only)}), who may be different people: "
+                              "say so in your answer.")
+        return json.dumps(result, ensure_ascii=False)
+
+    def get_paper(arxiv_id: str) -> str:
+        m = ARXIV_ID_RE.search(str(arxiv_id or ""))
+        if not m:
+            steps.append(f"[agent] get_paper('{arxiv_id}') -> not an arXiv id.")
+            return json.dumps({"error": "Not an arXiv id, e.g. 2105.01234."})
+        pid = m.group(1)
+        hit = found.get(pid)
+        if hit is None:
+            retriever = get_retriever(log)
+            from qdrant_client import models
+            points, _ = retriever.client.scroll(
+                collection_name=COLLECTION, limit=1, with_payload=True,
+                scroll_filter=models.Filter(must=[models.FieldCondition(
+                    key=f"{retriever.prefix}arxiv_id", match=models.MatchValue(value=pid))]))
+            if points:
+                _, meta, text = split_payload(points[0].payload or {})
+                if text:
+                    hit = Evidence(initial_rank=0, vector_score=0.0, point_id=str(points[0].id), arxiv_id=pid,
+                                   title=str(meta.get("title") or text.split("\n", 1)[0]),
+                                   url=str(meta.get("url") or f"https://arxiv.org/abs/{pid}"), metadata=meta, text=text)
+                    found[pid] = hit
+        if hit is None and pid in known:   # shown earlier in this chat (paper dict, not a search hit)
+            p = known[pid]
+            vouched.add(pid)
+            steps.append(f"[agent] get_paper('{pid}') -> from this chat's shown papers.")
+            return json.dumps({k: p.get(k) for k in ("arxiv_id", "title", "year", "authors", "abstract")},
+                              ensure_ascii=False)
+        if hit is None:
+            steps.append(f"[agent] get_paper('{pid}') -> not in the database.")
+            return json.dumps({"error": f"{pid} is not in the database."})
+        steps.append(f"[agent] get_paper('{pid}') -> '{hit.title[:60]}'.")
+        return json.dumps(agent_paper(hit, abstract_chars=None), ensure_ascii=False)
+
+    def current_results() -> str:
+        steps.append(f"[agent] list_current_results() -> {len(shown)} paper(s).")
+        for p in shown:
+            known.setdefault(p["arxiv_id"], p)
+            vouched.add(p["arxiv_id"])
+        return json.dumps({"papers": [{"label": p["label"], "arxiv_id": p["arxiv_id"], "title": p["title"],
+                                       "year": p.get("year")} for p in shown]} if shown else
+                          {"papers": [], "note": "No papers are shown yet."}, ensure_ascii=False)
+
+    return [
+        StructuredTool.from_function(search, name="search_papers", description=(
+            "Search the arXiv CS paper database (hybrid search + reranker). query: short research topic; "
+            "author: author name(s), several separated by ';'; year_from / year_to: year range; "
+            f"k: papers to return (1-{AGENT_MAX_K}). Returns arxiv_id, title, year, authors, abstract.")),
+        StructuredTool.from_function(get_paper, name="get_paper", description=(
+            "Full abstract and metadata of one paper by its arXiv id, e.g. 2105.01234.")),
+        StructuredTool.from_function(current_results, name="list_current_results", description=(
+            "The papers currently shown to the user, with their labels (1, 2, S1, ...).")),
+    ]
+
+
+@functools.lru_cache(maxsize=1)
+def get_agent_llm():
+    return ollama_llm(temperature=0.2, reasoning=True, num_predict=AGENT_MAX_TOKENS)
+
+
+# Research question -> answer from the tool loop. The cited papers become response.papers (cards 1, 2, ...).
+def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), history: list[dict] | None = None,
+              shown: list[dict] | None = None, known: dict[str, dict] | None = None) -> SearchResponse:
+    response = SearchResponse(prompt=question, mode="agent", search_prompt=question)
     diag = response.diagnostics
-    diag.original_prompt, diag.mode = question, "analyze"
-    shown, known = shown or [], known or {}
-    if not shown and not known:
-        response.errors.append(f"There are no papers to analyze yet: run a search first, e.g. {SEARCH_EXAMPLE}.")
-        diag.append("[analyze] FAILED: no papers shown in this chat yet -> nothing asked.")
-        return response
-    papers, unknown = resolve_paper_refs(question, shown, known)
-    available = ", ".join(f"[{p['label']}]" for p in shown) or "none"
-    if unknown:
-        response.errors.append(f"{', '.join(unknown)} {'is' if len(unknown) == 1 else 'are'} not in the last "
-                               f"results (available: {available}).")
-        diag.append(f"[analyze] FAILED: unknown reference(s) {', '.join(unknown)}; last results {available}.")
-        return response
-    if not papers:
-        # No label and no clear "this paper" / "these papers": ask instead of guessing (no LLM call)
-        response.errors.append(f"Which paper do you mean? Please add its label from the last results "
-                               f"({available}), e.g. 'what is the main contribution of 1' or 'compare 1 and S2'.")
-        diag.append(f"[analyze] No paper label found in the question -> asked the user (labels {available}).")
-        return response
-    diag.append(f"[analyze] Papers used: " + "; ".join(f"[{p['label']}] {p['arxiv_id']} '{p['title'][:60]}'"
-                                                       for p in papers) + ".")
-
-    # The papers used are not printed; they go to the conversation memory with the answer (assistant_turn_text)
-    response.memory_note = "Papers used: " + "; ".join(f"[{p['label']}] [{p['arxiv_id']}] {p['title']}"
-                                                       for p in papers)
-    response.memory_papers = [p["arxiv_id"] for p in papers]
-    history, note = select_history(history, set(response.memory_papers))
-    diag.append(note)
+    diag.original_prompt, diag.mode = question, "agent"
+    found: dict[str, Evidence] = {}
+    steps: list[str] = []
+    vouched: set[str] = set()
+    tools = agent_tools(found, steps, list(shown or []), dict(known or {}), log, vouched, response.agent_searches)
+    by_name = {t.name: t for t in tools}
+    llm = get_agent_llm()
+    messages = [SystemMessage(AGENT_SYSTEM_PROMPT)]
+    messages += [HumanMessage(e["content"]) if e["role"] == "user" else AIMessage(e["content"])
+                 for e in (history or [])]
+    if shown:   # the papers on screen, so labels like '2' or 'S1' need no tool call to resolve
+        listing = "\n".join(f"[{p['label']}] {p['arxiv_id']} ({p.get('year') or '?'}) {p['title']}" for p in shown)
+        messages.append(SystemMessage(f"Papers currently shown to the user:\n{listing}"))
+        vouched.update(p["arxiv_id"] for p in shown)
+    messages.append(HumanMessage(question))
     start_context_tracking(diag)
+    answer = ""
     try:
-        log(f"Asking Ollama ({OLLAMA_MODEL}) about {len(papers)} paper(s)...")
-        raw = stream_text(get_analyze_chain(),
-                          {"history": history or [], "papers": "\n\n".join(paper_block(p) for p in papers),
-                           "question": question},
-                          on_token, config=llm_config("analyze"))
-        answer = strip_thinking(raw)
-        if not answer:
-            response.errors.append("The model gave no answer (it may have used its whole token budget on "
-                                   "thinking); please ask again, perhaps about fewer papers.")
-            diag.append(f"[analyze] FAILED: empty answer ({len(raw)} raw chars).")
+        with_tools = llm.bind_tools(tools)
+        for step in range(1, AGENT_MAX_STEPS + 1):
+            log(f"Thinking (step {step})..." if step > 1 else "Planning the search...")
+            ai = with_tools.invoke(messages, config=llm_config(f"agent step {step}"))
+            messages.append(ai)
+            if not ai.tool_calls:
+                answer = strip_thinking(ai.content if isinstance(ai.content, str) else str(ai.content))
+                break
+            for call in ai.tool_calls:
+                tool = by_name.get(call["name"])
+                try:
+                    result = tool.invoke(call.get("args") or {}) if tool else json.dumps(
+                        {"error": f"Unknown tool {call['name']}."})
+                except Exception as exc:
+                    result = json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+                    steps.append(f"[agent] {call['name']}({call.get('args')}) -> FAILED ({type(exc).__name__}).")
+                messages.append(ToolMessage(content=str(result), tool_call_id=call.get("id") or call["name"]))
         else:
-            response.answer = answer
+            log("Writing the answer...")
+            steps.append(f"[agent] Step limit ({AGENT_MAX_STEPS}) reached -> asked for the answer without tools.")
+            messages.append(HumanMessage("Stop searching. Answer the question now from the papers above, "
+                                         "citing their arXiv ids."))
+            ai = llm.invoke(messages, config=llm_config("agent final"))
+            answer = strip_thinking(ai.content if isinstance(ai.content, str) else str(ai.content))
     except Exception as exc:
-        response.errors.append(f"Ollama request failed ({type(exc).__name__}: {exc}).")
-        diag.append(f"[analyze] FAILED: Ollama request failed ({type(exc).__name__}).")
+        response.errors.append(f"The research assistant failed ({type(exc).__name__}: {exc}).")
+        steps.append(f"[agent] FAILED ({type(exc).__name__}: {str(exc)[:200]}).")
     finally:
         stop_context_tracking()
+    diag += steps
+    if not answer and not response.errors:
+        response.errors.append("The model gave no answer (it may have used its token budget on thinking); "
+                               "please ask again, or use search= for a list of papers.")
+        diag.append("[agent] FAILED: empty answer.")
+    if response.errors:
+        return response
+
+    # Citations: ids a tool returned -> [1], [2] ... (cards below the answer); other ids are flagged
+    cited: list[str] = []
+    unverified: list[str] = []
+
+    # The whole citation is replaced, with its brackets and any 'arXiv:' / 'arXiv ' prefix: '[2101.00190]',
+    # 'arXiv:2101.00190' and '[arXiv:2101.00190v2]' all become '[1]' (no leftover 'arXiv:1').
+    def renumber(m: re.Match) -> str:
+        pid = m.group(1)
+        if pid in found:
+            if pid not in cited:
+                cited.append(pid)
+            return f"[{cited.index(pid) + 1}]"
+        if pid in vouched:   # a paper shown earlier in the chat: real, but no new card for it
+            return f"[{pid}]"
+        if pid not in unverified:
+            unverified.append(pid)
+        return f"[{pid} (unverified)]"
+
+    answer = CITATION_RE.sub(renumber, answer)
+    # 'arXiv:2101.00190 [2101.00190]' -> '[1] [1]': keep one
+    response.answer = re.sub(r"(\[(\d+)\])([*_\s]{0,4})\[\2\]", lambda m: m.group(1) + m.group(3).strip(), answer)
+    response.papers = [found[pid] for pid in cited]
+    response.top_papers = list(range(1, len(cited) + 1))
+    response.memory_papers = list(cited)
+    response.memory_note = "Papers cited: " + "; ".join(f"[{i}] [{h.arxiv_id}] {h.title}"
+                                                         for i, h in enumerate(response.papers, start=1))
+    diag.append(f"[agent] Answer cites {len(cited)} of {len(found)} paper(s) found"
+                + (f"; UNVERIFIED ids (no tool returned them): {', '.join(unverified)}" if unverified else "") + ".")
+    if unverified:
+        response.warnings.append(f"Ids not found by the search (may be invented): {', '.join(unverified)}.")
     return response
-
-
-# Input filter reply: the message has neither search= nor title=, so nothing is run (no LLM call).
-def command_reminder(message: str) -> SearchResponse:
-    response = SearchResponse(prompt=message, mode="chat", search_prompt=message,
-                              diagnostics=Diagnostics.for_chat(message))
-    response.answer = ("Please start with a mode: **search=** to search papers by topic "
-                       "(e.g. *search= graph neural networks for drug discovery year=2020-*), **title=** "
-                       "to find one paper by its exact title (e.g. *title= Attention is all you need*) or "
-                       "**analyze=** to ask about the papers shown (e.g. *analyze= compare 1 and 2*). "
-                       "The mode stays on for your next messages until you type another one. "
-                       "Optional filters for search=/title=: **year=** (2021, 2019-2022, 2019- or -2020) and "
-                       "**author=** (several: *author=Kipf; Welling*).")
-    response.diagnostics.messages = [
-        "[mode] Input filter: no mode key and no mode chosen yet in this chat -> user informed, "
-        "no model call (CHAT_WITH_LLM is off)."]
-    return response
-
-
-# Fixed reply for non-search messages when the model gives nothing usable: point to the search= key.
-def search_reminder(message: str) -> str:
-    topic = " ".join((message or "").split()[:8]).strip(" ?!.,;:") or "graph neural networks"
-    return (f"No search was run because your message has no search= key. "
-            f"To find papers, use it, e.g. \"search= {topic}\", or title= for an exact paper title.")
 
 
 # Input check failed: tell the user, run nothing (no model or search call). The diagnostics keep the
@@ -1573,32 +1710,23 @@ def rejected(message: str, parsed: ParsedMessage, error: str, diag_line: str) ->
 
 
 # Entry point for one user message. Input checks, in order (no model call until all pass):
-#   1. length    : whole message as typed <= MAX_PROMPT_WORDS (every mode; too long -> nothing runs)
-#   2. symbols   : whole message: runs of the same symbol -> one, then keep only letters, digits and
-#                  = , - : . ; ? ' & (other symbols -> space)
-#   3. keys      : the parser (parse_message) reads the mode key and the year= / author= metadata in one go;
-#                  a mode key switches the chat's mode, remembered until another mode key is typed (no key and
-#                  no mode yet -> chat reminder); year=/author= are per-message metadata (ignored by analyze=)
-# Then search= runs the search pipeline, title= the title lookup, analyze= a question about shown papers.
-# on_token is used by non-search replies only (search results are structured and arrive at the end).
-# current_mode = the chat's remembered mode (None before the first mode key); shown / known = papers of the
-# last result / all papers shown in the chat (for analyze=). Sets response.active_mode: the typed mode key if
-# there was one (even if a later check fails), else the remembered mode.
+#   1. length  : whole message as typed <= MAX_PROMPT_WORDS (too long -> nothing runs)
+#   2. symbols : runs of the same symbol -> one, then keep only letters, digits and = , - : . ; ? ' &
+#   3. keys    : search= / title= (with optional year= / author=) run the search or title pipeline exactly as
+#                typed. Anything else goes to the agent, which decides for itself what to search or look up.
+# There are no remembered modes: each message is handled on its own (the history is still read).
+# shown / known = papers of the last result / all papers shown in the chat (the agent can read them).
+# current_mode and on_mode are accepted for old callers and ignored.
 def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
              history: list[dict] | None = None, on_token: TokenFn | None = None,
              newest_first: bool = False, current_mode: str | None = None,
-             shown: list[dict] | None = None, known: dict[str, dict] | None = None) -> SearchResponse:
+             shown: list[dict] | None = None, known: dict[str, dict] | None = None,
+             on_mode: Callable[[str], None] | None = None) -> SearchResponse:
     message = message or ""
-    # 1. Length: first, on the whole message as typed, the same limit for every mode. A message that is too
-    #    long is not processed at all, so its mode key (if any) does not switch the mode either.
     problem = length_problem(message)
     if problem:
-        too_long = rejected(message, ParsedMessage(mode=current_mode or "search", text=message), *problem)
-        too_long.active_mode = current_mode
-        return too_long
+        return rejected(message, ParsedMessage(mode="search", text=message), *problem)
 
-    # 2. Symbols: collapse repeated symbols, then keep only the wanted ones (= , - : . ; ? ' &), on the whole
-    #    message, so the keys are read from clean text ('=' is kept for them)
     clean_notes = []
     collapsed = collapse_repeats(message)
     if collapsed != " ".join(message.split()):
@@ -1607,54 +1735,43 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
     if cleaned != collapsed:
         clean_notes.append(f"[query] Step 2 symbols (remove): '{collapsed}' -> '{cleaned}'.")
 
-    # 3. Keys: the parser reads the mode key and the year= / author= metadata in one go (the topic/title/question
-    #    text is what remains without them)
-    parsed = parse_message(cleaned, current_mode)
+    parsed = parse_message(cleaned, None)
     parsed.notes[:0] = clean_notes
-    mode = parsed.mode
-    active = parsed.mode_key or current_mode
+    mode = parsed.mode_key if parsed.mode_key in ("search", "title") else None
 
-    def done(response: SearchResponse) -> SearchResponse:
-        response.active_mode = active
-        return response
+    if mode is None:   # no search= / title=: the agent answers (analyze= and stray keys are just text to it)
+        question = parsed.text if parsed.mode_key == "analyze" and parsed.text.strip() else cleaned
+        if not re.search(r"[^\W_]", question):
+            return rejected(message, parsed, "Type a question or a topic, e.g. recent papers on RAG evaluation.",
+                            "[query] Step 2 symbols (remove): no words left -> FAILED.")
+        if AGENT_ENABLED:
+            answer = run_agent(question, log, select_history(history)[0], shown, known)
+            answer.prompt = message
+            answer.diagnostics.messages[:0] = clean_notes + ["[query] No search= / title= -> the agent answers."]
+            return answer
+        parsed = parse_message(f"search= {question}", None)   # AGENT=0: searched as a topic
+        parsed.notes[:0] = clean_notes + ["[query] No search= / title= and AGENT=0 -> searched as a topic."]
+        mode = "search"
 
-    if mode == "chat":
-        if CHAT_WITH_LLM:
-            return done(chat_reply(message, log, select_history(history)[0], on_token))
-        return done(command_reminder(message))   # input filter: no key, no mode yet -> inform, no LLM call
-    if parsed.mode_key == "analyze" and not shown:
-        # No search= / title= result in this chat yet: analyze= has nothing to work on (and chat with the LLM is
-        # off), so the mode does not switch; the user stays in the current mode
-        active = current_mode
-        return done(rejected(message, parsed,
-                             f"Analyze mode needs a result first: run a search= or title= lookup, e.g. "
-                             f"{SEARCH_EXAMPLE}. You are still in {current_mode or 'search'} mode.",
-                             f"[query] Step 3 keys: analyze= before any search=/title= result -> mode not switched "
-                             f"(stays {current_mode})."))
     if parsed.errors:
-        return done(rejected(message, parsed, " ".join(parsed.errors),
-                             f"[query] Step 3 keys: {parsed.summary()} -> FAILED: {' '.join(parsed.errors)}"))
-
+        return rejected(message, parsed, " ".join(parsed.errors),
+                        f"[query] Step 3 keys: {parsed.summary()} -> FAILED: {' '.join(parsed.errors)}")
     if not re.search(r"[^\W_]", parsed.text):
-        what = {"title": "paper title", "analyze": "question"}.get(mode, "topic")
-        return done(rejected(message, parsed, f"{mode}= has no words left after removing symbols; type a "
-                                              f"{what}, e.g. {MODE_EXAMPLES[mode]}.",
-                             f"[query] Step 2 symbols (remove): nothing but symbols in the {mode}= text -> FAILED."))
+        what = "paper title" if mode == "title" else "topic"
+        return rejected(message, parsed, f"{mode}= has no words left after removing symbols; type a "
+                                         f"{what}, e.g. {MODE_EXAMPLES[mode]}.",
+                        f"[query] Step 2 symbols (remove): nothing but symbols in the {mode}= text -> FAILED.")
     query = parsed.text
     try:
-        if mode == "analyze":
-            response = run_analyze(query, shown, known, log, history, on_token)
-        elif mode == "title":
+        if mode == "title":
             response = run_title_query(query, log, meta=parsed)
         else:
-            # follow-up rewrite reads only the successful earlier turns
             response = run_query(query, log, select_history(history)[0], newest_first=newest_first, meta=parsed)
     finally:
         stop_context_tracking()
-    # [mode] + [query] parser notes first, [context] last
     response.diagnostics.finish_search(query, NUM_CTX, keyword=mode,
                                        parser_notes=[f"[query] Parser: {parsed.summary()}"] + parsed.notes)
-    return done(response)
+    return response
 
 
 # One picked paper as '- [label] (year) title\\n   url'.
@@ -1664,8 +1781,11 @@ def format_hit(label: str, hit) -> str:
 
 # Render a SearchResponse as plain text.
 def format_response(r: SearchResponse, show_reasoning: bool = SHOW_REASONING) -> str:
-    if r.mode in ("chat", "analyze"):
-        return r.answer if r.answer else "Can't answer:\n" + "\n".join(f"  - {e}" for e in r.errors)
+    if r.mode == "agent":
+        if not r.answer:
+            return "Can't answer:\n" + "\n".join(f"  - {e}" for e in r.errors)
+        sources = [f"  [{i}] ({year_label(h)}) {h.title}\n      {h.url}" for i, h in enumerate(r.papers, start=1)]
+        return "\n".join([r.answer] + [f"Warning: {w}" for w in r.warnings] + (["\nSources:"] + sources if sources else []))
     lines = []
     if r.analysis and r.analysis.authors:
         how = "hint, not a filter" if r.mode == "title" else "filtered"
@@ -1978,7 +2098,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         gui.init_session()
         record_trace()
         cl.user_session.set("selection", ChunkSelection())
-        await gui.set_mode("search")   # a new chat starts in search mode (banner)
+        await gui.show_mode(None)   # banner: neutral until the first message
         await gui.send_welcome()
         status = cl.Message("Checking the models and the database...")
         await status.send()
@@ -2024,39 +2144,37 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
                 cl.run_sync(status.remove())
             cl.run_sync(answer.stream_token(piece))
 
-        # A mode key switches the banner and the box border at once, before the (slower) search or answer runs
-        # (analyze= only once a search=/title= result exists in this chat; otherwise run_turn refuses it)
+        # Banner and box colour show what this message runs (nothing is remembered): search= / title= as typed,
+        # anything else the agent ("ask")
         shown = gui.last_result_papers()
-        # (and not for a message over the length limit: run_turn rejects it before reading any key)
-        typed_mode = None if length_problem(prompt) else parse_message(prompt, gui.current_mode()).mode_key
-        if typed_mode and typed_mode != gui.current_mode() and (typed_mode != "analyze" or shown):
-            await gui.set_mode(typed_mode)
+        typed = None if length_problem(prompt) else parse_message(prompt, None).mode_key
+        await gui.show_mode(typed if typed in ("search", "title") else "ask")
 
         user = cl.context.session.user
         newest_first = bool(user) and db.get_pref(user.identifier, NEWEST_FIRST_PREF) == "1"   # top-bar box
         r = await cl.make_async(run_turn)(prompt, log, list(gui.history()), on_token,
-                                          newest_first=newest_first, current_mode=gui.current_mode(),
-                                          shown=shown,
+                                          newest_first=newest_first, shown=shown,
                                           known=dict(cl.user_session.get("papers_by_id") or {}))
         if not streaming["started"]:
             await status.remove()
-        if r.active_mode != gui.current_mode():
-            await gui.set_mode(r.active_mode)   # a mode key was typed: banner + remembered mode
         tags = memory_tags(r)   # decides whether later turns read this question/answer
         gui.remember("user", prompt, tags)
         gui.remember("assistant", assistant_turn_text(r), tags)
         selection = gui_selection()
         on_results_shown(selection, r)
         if r.mode in ("search", "title") and not r.errors:
-            gui.set_last_results(gui.picked_hits(r), r.best[0] if r.best else None)   # for analyze= references
+            gui.set_last_results(gui.picked_hits(r), r.best[0] if r.best else None)   # labels the agent can read
 
-        if r.mode in ("chat", "analyze"):
-            final = r.answer if r.answer else "**Can't answer:**\n" + "\n".join(f"- {e}" for e in r.errors)
-            if streaming["started"]:
-                answer.content = final        # cleaned full text (e.g. stray <think> removed)
-                await answer.update()         # also ends the streaming state
+        if r.mode == "agent":
+            # Answer first, then a card per cited paper (labels 1, 2, ... match the [1], [2] in the answer)
+            if r.errors:
+                await gui.send_notice("**Can't answer:**\n" + "\n".join(f"- {e}" for e in r.errors))
             else:
-                await gui.send_notice(final)
+                await gui.send_notice(r.answer + "".join(f"\n\n⚠️ {w}" for w in r.warnings))
+                for label, hit in gui.picked_hits(r):
+                    await gui.send_paper(gui.to_paper(hit, label), selection.is_checked(hit.point_id))
+                if r.papers:
+                    gui.set_last_results(gui.picked_hits(r))   # follow-ups like 'compare 1 and 2' work
         elif r.errors:
             await gui.send_notice("**Can't complete this query:**\n" + "\n".join(f"- {e}" for e in r.errors))
         else:

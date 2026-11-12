@@ -1,0 +1,13 @@
+Run 20261112-1339_dev_keyed_smoke: 2 cases (dev, input=keyed)
+Loading the app, models and Qdrant connection...
+Loading the embedding models and connecting to Qdrant (http://localhost:6333, 'sebun_bge768_hybrid_full')...
+Loading the reranker BAAI/bge-reranker-base on cuda...
+Collection sebun_bge768_hybrid_full: 1,104,538 points
+WARNING: uncommitted changes ['M app.py', ' M eval/run_eval.py', ' M public/custom.js', ' M threeofus_main.py', '?? eval/runs/', '?? tests/']; the git commit alone won't identify this system.
+0 cases already done, 2 to run.
+
+[1/2] m00      17.5s  5 shown
+[2/2] m01      18.6s  3 shown
+
+Done in 36s. Traces: C:\Users\COM\Desktop\rag course proj\eval\runs\20261112-1339_dev_keyed_smoke\traces.jsonl
+Score it with:  python -X utf8 eval/score.py eval\runs\20261112-1339_dev_keyed_smoke
