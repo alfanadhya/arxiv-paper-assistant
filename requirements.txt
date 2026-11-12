@@ -1,3 +1,27 @@
+# Install with:  python -m pip install -r requirements.txt
+# Versions pinned to what is currently installed and working.
+
+# Web GUI + chat history database (SQLite) - threeofus_main.py, app.py, db.py
 chainlit==2.12.0
-sqlalchemy[asyncio]==2.1.8
+SQLAlchemy==2.1.8
 aiosqlite==0.22.1
+
+# LLM (Gemini 2.5 Flash via LangChain) - chat.py
+langchain-google-genai==4.4.3
+
+# Local LLM via Ollama - threeofus_main.py
+langchain-ollama==1.1.0
+
+# Loads GOOGLE_API_KEY / QDRANT_URL from .env - chat.py
+python-dotenv==1.2.4
+
+# Qdrant vector database client - chat.py, retriever_hybrid_rrf.py, makedb.py
+qdrant-client==1.19.1
+
+# Dense embeddings (BAAI/bge-small-en-v1.5) - retriever_hybrid_rrf.py, makedb.py
+# (pulls in torch automatically)
+sentence-transformers==6.1.0
+
+# Sparse BM25 embeddings (Qdrant/bm25) - retriever_hybrid_rrf.py
+langchain-qdrant==1.1.0
+fastembed==0.9.1

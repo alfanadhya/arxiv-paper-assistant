@@ -1,62 +1,128 @@
 # arXiv Paper Assistant
 
-A clickable prototype of the flow: **ask → top 5 papers → add to reading list → export zip**.
-The search is a simple word match over the 5,520-paper arXiv cs.CL sample in `data/` (arXiv metadata, CC0), with no embeddings and no LLM. That's on purpose: the prototype tests the UI flow, not the search quality.
+A web app for finding computer science papers on arXiv (2007 to Oct 2026), collecting them in a reading list and exporting them for Zotero or Mendeley. It runs locally: a Qdrant vector database holds the papers, Ollama runs the language model, and Chainlit serves the web page. Several people can use it at the same time from other computers on the same network, each with their own login and chats.
 
-| File | What it does |
-|---|---|
-| `rag.py` | Stand-in for the real RAG. Its `ask()` returns the **contract** (the JSON shape) the UI depends on |
-| `app.py` | Chainlit app: paper messages with an Add button, callbacks for add/remove/export |
-| `public/elements/ReadingList.jsx` | The Reading List panel in the right sidebar (Bin + Export buttons) |
-| `export.py` | Builds `reading_list.zip`: `reading_list.bib` (Zotero/Mendeley import) + PDFs from arXiv, 3 s apart |
-| `db.py` | Creates `history.db` (SQLite), where Chainlit saves every chat for the left history panel |
-| `.env` | The login secret + the shared demo password (`paper2026`). Not committed to git |
+## Using the app
 
-## Run it
+Every message runs in a **mode**. The coloured banner at the top of the page shows the current mode and two example messages.
+
+| Mode | Key | What it does | Example |
+|---|---|---|---|
+| Search (blue) | `search=` | Finds research papers and surveys on a topic | `search= generative AI for construction industry year=2020-` |
+| Title (yellow) | `title=` | Finds one paper by its exact title (3–30 words) | `title= Attention is all you need` |
+| Analyze (orange) | `analyze=` (or `analyse=`) | Answers a question about papers already shown, using only their abstracts | `analyze= compare 1 and 2` |
+
+- **The mode stays on.** After you type a key, your next messages need no key until you type another one. A new chat starts in search mode. A reopened chat keeps the mode it was in; the mode only changes when you type a key.
+- **Filters** (search and title only; they apply to the message they're typed in):
+  - `year=` takes `2021` (exact), `2019-2022` (range), `2019-` (from) or `-2020` (until).
+  - `author=` takes one or more names separated by `;`, e.g. `author=Kipf; Welling`. With several names, a paper must have **all** of them.
+  - In search mode they are strict filters. In title mode they only nudge the score.
+- **Analyze references:** `1`, `[2]`, `S1` or `[S3]` are the labels of the **last** result. An arXiv id (e.g. `1706.03762`) can name any paper shown in the chat. With no reference, all papers of the last result are used.
+- **Reading list:** click **☐ Select** under a paper to add it. The panel on the right lets you reorder and remove papers, and exports a zip with a BibTeX file (for Zotero/Mendeley), the PDFs and the selected text chunks.
+- **Newest first** (checkbox in the top bar): shows papers and surveys by year instead of by relevance. It's saved per user.
+- **Diagnostics:** the collapsible panel under each answer shows how the message was read, how candidates were ranked and how much of the model's context was used. It's saved with the chat.
+
+## How a search works
+
+1. **Input checks** (no model): keys, lengths (message at most 200 words, title 3–30 words), then repeated symbols are collapsed and other symbols removed.
+2. **Spell check:** one Ollama call fixes the spelling of the topic or title.
+3. **Retrieval:** Qdrant hybrid search (dense `BAAI/bge-base-en-v1.5` + BM25, merged with reciprocal rank fusion), once for the topic and once for "survey of <topic>". Results are split into research papers and surveys (by "survey" in the title).
+4. **Reranking:** the `BAAI/bge-reranker-base` cross-encoder rescores both pools.
+5. **Picking:**
+   - Research papers: Ollama picks the best 3 of the reranker's top 5.
+   - Surveys: the reranker's top 5 are shown directly, with no model call.
+
+A title lookup skips step 5: it combines title similarity and the reranker score and returns one paper.
+
+## Setup
+
+You need:
+- **Python 3.10+** (developed on 3.13)
+- **[Ollama](https://ollama.com)** with a model pulled, e.g. `ollama pull qwen3:4b`
+- **A Qdrant server** with the paper collection `sebun_bge768_hybrid_full`, built with `utils/db_generator_hybrid_gpu.py`. Run `python utils/db_generator_hybrid_gpu.py --help` for its options.
+- **A GPU** is optional but makes the embedding and reranker models much faster.
+
+Install the packages:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\chainlit.exe run app.py -w
 ```
 
-Open http://localhost:8000. `-w` reloads the app whenever you save a file.
+Create a `.env` file in the project folder. It is not in git, so never commit it:
 
-On a new computer, `.env` won't exist because it isn't in git. Create it with:
 ```
 CHAINLIT_AUTH_SECRET="<output of: .venv\Scripts\chainlit.exe create-secret>"
-DEMO_PASSWORD="paper2026"
+OLLAMA_MODEL="qwen3:4b"
+QDRANT_URL="http://localhost:6333"
 ```
 
-## What to click (test script)
+Optional settings, with their defaults:
 
-0. Log in with any username and the password `paper2026`. Each username has its own history.
-1. Ask `retrieval augmented generation evaluation`. You should see 1 summary message + 5 paper cards.
-2. Click **Add to reading list** on 2 papers. The right panel opens and shows them, with a green toast for each.
-3. Click Add on the same paper again. You should get the toast "Already in your reading list", with no duplicate.
-4. Click the 🗑 on one paper. It disappears from the panel.
-5. Ask a second question and add 1 paper from it. The list now combines papers from both questions.
-6. Click **Export and download**. The message counts PDFs as they download, then shows `reading_list.zip`. **The panel should stay open with the same list.** Unzip the file and import the `.bib` into Zotero.
-7. Click **New Chat** (top left) and ask something else. Open the left history panel: the first chat is listed, named after its first question.
-8. Click the first chat. Its messages come back **with their Add buttons**, and so does its reading list in the right panel.
-9. Close the right panel, then click **Reading list** under any answer summary. The panel opens again.
-10. Check the database: `.venv\Scripts\python.exe -X utf8 db.py` lists the tables and the latest chats.
+| Variable | Default | Meaning |
+|---|---|---|
+| `OLLAMA_URL` | `http://localhost:11434` | Where Ollama runs |
+| `OLLAMA_NUM_CTX` | `16384` | Model context size in tokens |
+| `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded (`-1` = forever) |
+| `RERANKER_MODEL` | `BAAI/bge-reranker-base` | Cross-encoder used for reranking |
+| `ANALYZE_MAX_TOKENS` | `2048` | Token cap for an analyze answer (thinking + answer) |
 
-## Connecting the real RAG later
+Changing `CHAINLIT_AUTH_SECRET` logs everyone out.
 
-Change only `rag.ask()`: call the real pipeline and return the `papers` shape described at the top of `rag.py`. See [INTEGRATION.md](INTEGRATION.md). `app.py` and the JSX panel stay the same.
+## Accounts
 
-## LangChain memory later
+People can create their own account with **Create an account** on the login page. Usernames are 3–32 characters (`a-z 0-9 . _ -`) and passwords are at least 6 characters. Passwords are stored hashed (scrypt) in `history.db`.
 
-`app.py` already keeps the conversation in `cl.user_session["history"]` as `[{"role": "user"|"assistant", "content": ...}]`, capped at the last 10 turns. Chainlit saves it with the chat, so it also comes back when an old chat is reopened. To use it:
-1. In the prompt: `ChatPromptTemplate.from_messages([("system", ...), MessagesPlaceholder("history"), ("human", "{question}")])`
-2. Call it with `chain.invoke({"history": history, "question": q})`. LangChain accepts these dicts as they are.
-3. Main use: rewrite a follow-up ("more like the second one") into a standalone search query *before* retrieval. The assistant turns include the numbered titles and IDs, so "the second one" can be resolved.
+Admin commands:
+
+```powershell
+python db.py users            # list accounts
+python db.py adduser NAME     # create an account or reset its password (asks for the password)
+python db.py deluser NAME     # remove an account (its chats are kept)
+```
+
+Each user only sees their own chats.
+
+## Run it
+
+```powershell
+.venv\Scripts\python.exe -m chainlit run threeofus_main.py -w -h --host 0.0.0.0 --port 8000
+```
+
+Then open http://localhost:8000.
+- `-w` reloads the app when `threeofus_main.py` changes. Changes to `app.py`, `db.py` or `chatbot_diagnostics.py` need a full restart.
+- `-h` stops Chainlit from opening a browser window itself.
+- `--host 0.0.0.0` makes the app reachable from other computers on the network at `http://<this-PC's-IP>:8000`.
+
+On Windows, other computers can only connect once the firewall allows the port. Run this once in an admin PowerShell:
+
+```powershell
+New-NetFirewallRule -DisplayName "Chainlit 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+```
+
+## Files
+
+| File | What it does |
+|---|---|
+| `threeofus_main.py` | Main app: input checks, modes, search pipeline, LLM calls, Chainlit handlers, sign-up and preference routes |
+| `notes.md` | Developer notes: how each step of the pipeline works, chat resume, accounts |
+| `prompt_cleaning.py` | Input checks before any model call: key parser (modes, `year=`, `author=`), length limits, symbol cleaning |
+| `retriever_hybrid_rrf.py` | Qdrant hybrid search (dense + BM25, RRF) and metadata filters |
+| `chatbot_diagnostics.py` | Diagnostics: tagged notes, rank trace per candidate, context usage per LLM call |
+| `app.py` | GUI helpers: paper cards, Select buttons, reading-list panel, mode banner messages, chat resume |
+| `db.py` | `history.db` (SQLite): chats, accounts, preferences; per-user access checks; account commands |
+| `export.py` | Builds the reading-list zip: BibTeX, PDFs from arXiv, selected chunks |
+| `public/custom.js` | Page tweaks: mode banner, Newest first checkbox, sign-up link, reading-list tab, toasts |
+| `public/elements/ReadingList.jsx` | Reading-list panel on the right |
+| `public/elements/Diagnostics.jsx` | Diagnostics panel under each answer |
+| `.chainlit/config.toml` | Chainlit settings (bump the `?v=` after `custom.js` when you change that file, so browsers reload it) |
+| `utils/db_generator_hybrid_gpu.py` | Builds the Qdrant collection from arXiv metadata |
+| `rag.py`, `chat.py`, `chainlit_app.py`, `data/` | Earlier prototype, not used by the current app |
 
 ## Known limits
 
-- Chainlit's database saves messages but **not their buttons**. So each message stores what its button needs in `metadata`, and `resume()` in `app.py` re-attaches the buttons when an old chat is reopened. A new kind of button needs the same treatment.
-- Each chat has **its own** reading list. A single list per user across all chats (more like Zotero) would need to be stored on the user instead. Decide which one you want.
-- The reading list, history, etc. are saved to the database when the browser tab **disconnects** (closed, or switched to another chat). If the server crashes mid-chat, the latest changes are lost.
-- Files (the exported zip) are **not** saved with old chats. That would need a storage provider such as S3. In a reopened chat, export again.
-- `history.db` is a local file. Many free hosts wipe the disk on restart, so for deployment switch `DATABASE_URL` in `db.py` to a free hosted Postgres (Neon, Supabase). The table names stay the same.
+- **Analyze answers are only as good as the abstracts.** Questions about datasets or exact numbers often get "the abstracts don't say".
+- **A plain number in an analyze question counts as a paper label.** In "what are the top 3 ideas", `3` is read as paper 3. The answer always lists the papers it used.
+- **Surveys are detected by the word "survey" in the title**, so reviews, overviews and tutorials count as research papers.
+- **Exported zips are not saved with old chats.** In a reopened chat, export again.
+- **`history.db` is a local file.** For hosting on a server that wipes its disk on restart, point `DATABASE_URL` in `db.py` to a hosted Postgres database instead.

@@ -42,7 +42,7 @@ assistant_message_autoscroll = true
 auto_tag_thread = true
 
 # Allow users to edit their own messages
-edit_message = true
+edit_message = false   # sent prompts can't be edited (no pencil icon)
 
 # Allow users to share threads (backend + UI). Requires an app-defined on_shared_thread_view callback.
 allow_thread_sharing = false
@@ -56,7 +56,9 @@ reaction_on_message_received = false
 
 # Authorize users to spontaneously upload files with messages
 [features.spontaneous_file_upload]
-    enabled = true
+    # Hidden for now: false removes the attach-file button and drag-and-drop upload from the chat box.
+    # Set back to true to bring it back (the accept/max settings below are kept).
+    enabled = false
     # Define accepted file types using MIME types
     # Examples:
     # 1. For specific file types:
@@ -150,7 +152,7 @@ cot = "full"
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-# custom_js = "/public/test.js"
+custom_js = "/public/custom.js?v=17"   # toast ×, fresh chat after deleting all chats, reading-list tab, sign-up link, newest-first box, mode banner (bump v to bust cache)
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"
