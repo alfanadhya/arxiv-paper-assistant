@@ -14,8 +14,8 @@ from langchain_core.callbacks import BaseCallbackHandler
 TAGS = ("[query]", "[mode]", "[analysis]", "[validation]", "[memory]", "[rerank]", "[ranking]", "[selection]",
         "[context]")
 CONTEXT_WARN_PCT = 90   # warn when a call used at least this share of the model's context window
-TITLE_TRACE_ROWS = 5    # title lookups: rows shown in the rank trace (top contenders)
-AGENT_TRACE_ROWS = 8    # agent searches: reranked rows shown per search (plus any returned or cited below it)
+TITLE_TRACE_ROWS = 5    # (kept, unused) old cut: title rows shown in the rank trace; now all reranked rows
+AGENT_TRACE_ROWS = 8    # (kept, unused) old cut: agent rows shown per search; now all reranked rows
 
 # List that LLM calls of the current query report their token usage into (set per query, per thread).
 _usage_sink: contextvars.ContextVar[list | None] = contextvars.ContextVar("context_usage_sink", default=None)
@@ -109,8 +109,12 @@ class Diagnostics:
     # Wrap up a search: the mode key (search= / title=) and the parser's notes first, context usage last.
     def finish_search(self, query: str, num_ctx: int, keyword: str = "search",
                       parser_notes: list[str] | None = None) -> None:
-        what = {"title": "Exact-title lookup", "analyze": "Question about shown papers"}.get(keyword, "Search")
-        self.messages[:0] = [f"[mode] {what} requested with {keyword}= -> '{query}'."] + list(parser_notes or [])
+        if keyword == "agent":   # same shape as the search route: [mode] first, parser notes, [context] last
+            head = f"[mode] Agent answer requested (no search= / title= key) -> '{query}'."
+        else:
+            what = {"title": "Exact-title lookup", "analyze": "Question about shown papers"}.get(keyword, "Search")
+            head = f"[mode] {what} requested with {keyword}= -> '{query}'."
+        self.messages[:0] = [head] + list(parser_notes or [])
         self.messages.extend(self.context_messages(num_ctx))
 
     # Add one message.
@@ -227,30 +231,33 @@ class Diagnostics:
             if row:
                 row.final_rank, row.picked_by = n, "agent"
 
-    # Candidates worth showing: everything sent to the LLM, plus initial top ones the reranker dropped.
+    # Rank trace rows: EVERY candidate that was reranked, so the Qdrant -> reranker rank change is logged for
+    # all hits (the old TITLE_TRACE_ROWS / AGENT_TRACE_ROWS cuts are no longer applied).
     def rank_rows(self) -> list[CandidateRank]:
-        if self.mode == "agent":   # per search: what was returned to the model, plus the next few below it
-            rows = [c for c in self.candidates
-                    if c.llm_label or c.final_rank or (c.rerank_rank or 99) <= AGENT_TRACE_ROWS]
-            return sorted(rows, key=lambda c: (int(c.pool.lstrip("#") or 0), c.rerank_rank or 99))
-        if self.mode == "title":   # title lookups: the top contenders after title similarity + reranker
-            rows = [c for c in self.candidates if c.rerank_rank and c.rerank_rank <= TITLE_TRACE_ROWS]
-            return sorted(rows, key=lambda c: c.rerank_rank)
-        rows = []
-        for pool in ("paper", "survey"):
-            items = [c for c in self.candidates if c.pool == pool]
-            # kept = sent to the LLM (papers) or shown without it (surveys)
-            kept = sum(1 for c in items if c.llm_label or c.picked_by == "skipped")
-            rows += [c for c in items if c.llm_label or c.picked_by == "skipped"
-                     or (kept and c.initial_rank <= kept)]
-        key = lambda c: (c.pool != "paper", c.final_rank or 99, c.llm_rank or 99, c.rerank_rank or 99)
-        return sorted(rows, key=key)
+        if self.mode == "agent":   # per search: every reranked hit, best first
+            return sorted(self.candidates, key=lambda c: (int(c.pool.lstrip("#") or 0), c.rerank_rank or 999))
+        if self.mode == "title":   # title lookups: every candidate of the rerank pool, in the final order
+            return sorted((c for c in self.candidates if c.rerank_rank), key=lambda c: c.rerank_rank)
+        # search: all papers, then all surveys; shown ones first, then LLM picks, then reranker order
+        key = lambda c: (c.pool != "paper", c.final_rank or 999, c.llm_rank or 999, c.rerank_rank or 999,
+                         c.initial_rank)
+        return sorted(self.candidates, key=key)
 
-    # One line per shown candidate: Qdrant rank -> rerank -> LLM -> displayed.
+    # Rank change made by the reranker as text: '+5' = moved up 5 places, '-3' = moved down 3, '=' = unchanged,
+    # '' if the candidate was not reranked.
+    @staticmethod
+    def rank_change(c: CandidateRank) -> str:
+        if not c.rerank_rank or not c.initial_rank:
+            return ""
+        shift = c.initial_rank - c.rerank_rank
+        return f"{shift:+d}" if shift else "="
+
+    # One line per candidate: Qdrant rank -> rerank (change) -> LLM -> displayed.
     def rank_lines(self) -> list[str]:
         lines = []
         for c in self.rank_rows():
-            rerank = f"rerank {c.rerank_rank} ({c.rerank_score:.3f})" if c.rerank_rank else "rerank -"
+            rerank = (f"rerank {c.rerank_rank} ({c.rerank_score:.3f}, change {self.rank_change(c)})"
+                      if c.rerank_rank else "rerank -")
             if c.picked_by == "skipped":
                 sent, llm = "LLM -", "skipped"
             else:
@@ -296,8 +303,9 @@ class Diagnostics:
         lines = [f"[query] Mode: {self.mode}", f"[query] Original prompt: {self.original_prompt}"]
         if self.rewritten_prompt:
             lines.append(f"[query] Follow-up rewrite: {self.rewritten_prompt}")
-        if self.mode == "search":
-            lines.append(f"[query] Modified query (searched): {self.modified_query or '(none)'}")
+        if self.mode in ("search", "title", "agent"):
+            what = "Agent queries (searched)" if self.mode == "agent" else "Modified query (searched)"
+            lines.append(f"[query] {what}: {self.modified_query or '(none)'}")
         return lines + self.messages + self.rank_lines()
 
 
@@ -309,8 +317,9 @@ def format_diagnostics(source) -> str:
              f"  Original prompt : {d.original_prompt}"]
     if d.rewritten_prompt:
         lines.append(f"  Follow-up rewrite: {d.rewritten_prompt}")
-    if d.mode == "search":
-        lines.append(f"  Modified query  : {d.modified_query or '(none)'}")
+    if d.mode in ("search", "title", "agent"):
+        label = "Agent queries   " if d.mode == "agent" else "Modified query  "
+        lines.append(f"  {label}: {d.modified_query or '(none)'}")
     lines += [f"  {m}" for m in d.messages] or ["  (no issues)"]
     rank_lines = d.rank_lines()
     if rank_lines:

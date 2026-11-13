@@ -369,26 +369,30 @@ class QdrantHybridRetriever:
         query_filter = metadata.to_filter(self.prefix)
         prefetch_limit = max(50, k_retrieve * 2)
 
-        # 2. Fetch Dense & Sparse Sub-Ranks for Decision Logging
-        dense_hits = self.client.query_points(
-            collection_name=self.collection,
-            query=dense_vec,
-            using=self.dense_vector_name,
-            query_filter=query_filter,
-            limit=prefetch_limit,
-            with_payload=False,
-        ).points
-        dense_ranks = {str(pt.id): r for r, pt in enumerate(dense_hits, start=1)}
-
-        sparse_hits = self.client.query_points(
-            collection_name=self.collection,
-            query=sparse_vec,
-            using=self.sparse_vector_name,
-            query_filter=query_filter,
-            limit=prefetch_limit,
-            with_payload=False,
-        ).points
-        sparse_ranks = {str(pt.id): r for r, pt in enumerate(sparse_hits, start=1)}
+        # 2. Dense & sparse sub-ranks (diagnostics only): DISABLED. These two extra Qdrant requests only filled
+        #    Evidence.dense_rank / sparse_rank for the rank trace; the results come from the fused query below.
+        #    With them off, dense_rank and sparse_rank are None ("N/A"). Uncomment to bring the ranks back.
+        # dense_hits = self.client.query_points(
+        #     collection_name=self.collection,
+        #     query=dense_vec,
+        #     using=self.dense_vector_name,
+        #     query_filter=query_filter,
+        #     limit=prefetch_limit,
+        #     with_payload=False,
+        # ).points
+        # dense_ranks = {str(pt.id): r for r, pt in enumerate(dense_hits, start=1)}
+        #
+        # sparse_hits = self.client.query_points(
+        #     collection_name=self.collection,
+        #     query=sparse_vec,
+        #     using=self.sparse_vector_name,
+        #     query_filter=query_filter,
+        #     limit=prefetch_limit,
+        #     with_payload=False,
+        # ).points
+        # sparse_ranks = {str(pt.id): r for r, pt in enumerate(sparse_hits, start=1)}
+        dense_ranks: dict[str, int] = {}
+        sparse_ranks: dict[str, int] = {}
 
         # 3. Server-side Native RRF Fusion Query
         result = self.client.query_points(

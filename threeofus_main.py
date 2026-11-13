@@ -41,7 +41,7 @@ SHOW_REASONING = os.getenv("SHOW_REASONING", "0") == "1"
 
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")   # cross-encoder reranker
 
-K_RETRIEVE = 25          # candidates fetched from Qdrant (per search)
+K_RETRIEVE = 26          # candidates fetched from Qdrant (per search)
 K_FINAL = 6              # (kept) old fixed number of research papers passed to the model
 K_SURVEYS = 5            # (kept) old fixed number of surveys passed to the model (normal query)
 K_SURVEYS_FOCUS = 10     # (kept) old fixed number of surveys passed to the model (survey query)
@@ -77,7 +77,7 @@ TITLE_CLOSE = 0.80       # (kept) old cut-off for switching to the reranker
 TITLE_BLEND_MIN = 0.60   # from here up to TITLE_EXACT: blend title similarity (mostly) with the reranker;
                          # below it the reranker counts most
 TITLE_SIM_WEIGHT = 0.7   # weight of the dominant signal in the blend (other signal gets 1 - this)
-K_TITLE = 100            # candidates checked for a title (many titles share phrases like "... is all you need")
+K_TITLE = 50             # candidates checked for a title (many titles share phrases like "... is all you need")
 K_TITLE_RERANK = 30      # (kept) old reranker pool size
 TITLE_POOL_BY_SIM = 10   # rerank pool = these best by title similarity ...
 TITLE_POOL_BY_QDRANT = 20   # ... plus Qdrant's top this many (deduplicated, at most 30)
@@ -1232,8 +1232,12 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
         if history:
             log("Reading the conversation...")
             response.search_prompt, note = rewrite_with_history(prompt, history)
-            if note:
-                response.diagnostics.append(note)
+            # the rewrite decision is always logged, also when nothing was rewritten
+            response.diagnostics.append(
+                note or ("[memory] Follow-up rewrite: the model returned the prompt unchanged; searched as typed."
+                         if looks_like_followup(prompt) else
+                         "[memory] Follow-up rewrite skipped (no model call): the prompt has no word that refers "
+                         "back to earlier turns; searched as typed."))
             if response.search_prompt != prompt:
                 response.diagnostics.rewritten_prompt = response.search_prompt
         # the request as the user gave it (keys included) stays in the LLM context next to the search target
@@ -1385,7 +1389,7 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
             log("Looking up the title...")
             hits = retriever.retrieve(a.corrected_query, K_TITLE, filters)
             if not hits and a.category:
-                diag.append("[title] No match in the given category; searched again without it.")
+                diag.append("[validation] ADJUSTED: no match in the given category; searched again without it.")
                 response.warnings.append("No match in the given category, so it was ignored.")
                 hits = retriever.retrieve(a.corrected_query, K_TITLE, MetadataIntent())
     except Exception as exc:
@@ -1409,6 +1413,13 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
     try:
         reranked, rr = rerank_hits(a.corrected_query, pool)
         rr_of = {h.point_id: min(max(float(s), 0.0), 1.0) for h, s in zip(reranked, rr)}
+        # same wording as the search route's [rerank] line; the pool is built by title similarity + Qdrant order
+        top_qdrant = {h.point_id for h in hits[:TITLE_POOL_BY_QDRANT]}
+        deep = sum(1 for h in pool if h.point_id not in top_qdrant)
+        diag.append(f"[rerank] {len(pool)} of {len(hits)} title candidate(s) reranked with {RERANKER_MODEL}: "
+                    f"Qdrant's top {TITLE_POOL_BY_QDRANT} plus the {TITLE_POOL_BY_SIM} most similar titles "
+                    f"({deep} promoted from below Qdrant's top {TITLE_POOL_BY_QDRANT}); the other "
+                    f"{len(hits) - len(pool)} were dropped.")
     except Exception as exc:
         diag.append(f"[rerank] FAILED for the title pool ({type(exc).__name__}: {exc}); title similarity only.")
         rr_of = {h.point_id: 0.0 for h in pool}
@@ -1439,9 +1450,11 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
                 if sim >= TITLE_BLEND_MIN else
                 f"mostly reranker ({TITLE_SIM_WEIGHT:.0%}), title similarity below {TITLE_BLEND_MIN}")
         response.warnings.append("An exact title match was not found; the result is the best available match.")
-    diag.append(f"[title] {len(pool)} candidates reranked ({TITLE_POOL_BY_SIM} best by title + Qdrant's top "
-                f"{TITLE_POOL_BY_QDRANT}); decided by {rule}; best title similarity {sim:.2f}, "
-                f"reranker {rr_best:.2f}.")
+    # the title route's counterpart of the search route's [ranking] line: no LLM picks here, a fixed rule does
+    diag.append(f"[ranking] Title (no LLM ranking; rule: {rule}): picked {best.arxiv_id} "
+                f"'{best.title[:60]}' = {kind.lower()}; title similarity {sim:.2f}, reranker {rr_best:.2f}, "
+                f"Qdrant position {hits.index(best) + 1} of {len(hits)}"
+                + (f", author/year bonus {bonus_of[best.point_id]:.2f}" if bonus_of[best.point_id] else "") + ".")
     extras = [f"reranker {rr_best:.2f}"]
     if a.authors:
         extras.append("author matches" if author_matches(best, a.authors) else "author not found on this paper")
@@ -1571,30 +1584,46 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
     def search(query: str = "", author: str = "", year_from: int | None = None, year_to: int | None = None) -> str:
         topic = " ".join(str(query or "").split())
         authors = [a.strip() for a in re.split(r";|\band\b", str(author or "")) if a.strip()]
+        n = len(searches) + 1   # number of this search in the turn (the same '#n' as in the rank trace)
         y_from, y_to = to_int(year_from), to_int(year_to)
         if y_from and y_to and y_from > y_to:
+            steps.append(f"[validation] ADJUSTED: search #{n}: start year {y_from} is after end year {y_to}; "
+                         "swapped them.")
             y_from, y_to = y_to, y_from
         # a bound at or beyond the database's own range filters nothing: drop it (e.g. 2007-2026 = no filter)
+        asked_from, asked_to = y_from, y_to
         y_from = y_from if y_from and y_from > DB_FIRST_YEAR else None
         y_to = y_to if y_to and y_to < DB_LAST_YEAR else None
+        if (asked_from, asked_to) != (y_from, y_to):
+            steps.append(f"[validation] ADJUSTED: search #{n}: years={asked_from or ''}-{asked_to or ''} reach the "
+                         f"edge of the database ({DB_COVERAGE}) and filter nothing; used "
+                         f"years={y_from or ''}-{y_to or ''}.")
         # a year filter the user never asked for is dropped: the user's words (this message + recent ones)
         # must mention a year or a time ("recent", "since", "last 3 years", ...)
         if (y_from or y_to) and not DATE_HINT_RE.search(date_text):
-            steps.append(f"[agent] ignored years={y_from or ''}-{y_to or ''}: the user gave no year or time.")
+            steps.append(f"[validation] Dropped years={y_from or ''}-{y_to or ''} in search #{n}: the model set "
+                         "them, but the user gave no year or time.")
             y_from = y_to = None
         k = AGENT_CANDIDATES
-        call = f"search_papers(query='{topic}', author='{'; '.join(authors)}', years={y_from or ''}-{y_to or ''})"
         if not topic and not authors:
-            steps.append(f"[agent] {call} -> refused: no query and no author.")
+            steps.append("[validation] FAILED: the model called search_papers with no query and no author -> "
+                         "not searched; it was told to give one.")
             return json.dumps({"error": "Give a query or an author."})
         log(f"Searching: {topic or 'papers'}" + (f" by {', '.join(authors)}" if authors else "") + "...")
         a = QueryAnalysis(corrected_query=topic or " ".join(authors), authors=authors,
                           year_from=y_from, year_to=y_to)
+        # the agent's counterpart of the search route's spell check line: what the question became for Qdrant
+        steps.append(f"[analysis] Search #{n}: question '{user_question}' -> the model searched for "
+                     f"'{a.corrected_query}'" + ("" if topic else " (no topic given: the author name is the query)")
+                     + f" | filters: {describe_filters(a)}.")
         papers, surveys, _ = search_papers(a, False, log)
         last_name_only = []
         if not papers and not surveys and authors:   # 'Iryna Gurevych' -> also try the last name only
             papers, surveys, _ = search_papers(a, False, log, use_initials=False)
             last_name_only = last_name_matches(papers + surveys, authors)
+            steps.append(f"[validation] ADJUSTED: search #{n}: no papers for the author(s) with that first "
+                         "initial; retried with last name only"
+                         + (f" -> matched {', '.join(last_name_only)}." if last_name_only else " -> still none."))
         pool, seen = [], set()
         for h in papers + surveys:
             if h.arxiv_id not in seen:
@@ -1616,11 +1645,19 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
                                     [h.arxiv_id for h in top])
         for h in top:
             found.setdefault(h.arxiv_id, h)
-        steps.append(f"[agent] {call} -> Qdrant {len(pool)}, reranked {len(hits)} (query + question), "
-                     f"{len(above)} at or above {AGENT_RERANK_CUTOFF}, returned {len(top)}: "
-                     + (", ".join(f"#{i} {h.arxiv_id} ({s:.2f})" for i, (h, s) in enumerate(above[:k], 1)) or "none")
-                     + (f"; best below the cutoff: {ranked[0].arxiv_id} ({scores[0]:.2f})" if ranked and not above else "")
-                     + "." + (f" Last-name-only matches: {', '.join(last_name_only)}." if last_name_only else ""))
+        # same wording as the search route's [rerank] line, plus the cutoff only the agent applies; the ids and
+        # scores of every hit are in the rank trace (block '#n'), so they are not repeated here
+        top_ids = {h.arxiv_id for h in top}
+        promoted = sum(1 for i, h in enumerate(hits) if i >= len(top) and h.arxiv_id in top_ids)
+        if not pool:
+            steps.append(f"[rerank] Search #{n}: Qdrant returned no hits with these filters; nothing to rerank.")
+        else:
+            steps.append(f"[rerank] Search #{n}: {len(hits)} hit(s) reranked with {RERANKER_MODEL} (better score of "
+                         f"model query / user question); {len(above)} at or above the cutoff {AGENT_RERANK_CUTOFF}; "
+                         f"top {len(top)} returned to the model ({promoted} promoted from below Qdrant's top "
+                         f"{len(top)}, {promoted} dropped)"
+                         + (f"; best score {scores[0]:.2f} ({ranked[0].arxiv_id}) is below the cutoff" if not above else "")
+                         + ".")
         result = {"papers": [dict(agent_paper(h), rerank_rank=i, relevance=round(s, 2))
                              for i, (h, s) in enumerate(above[:k], 1)]} if top else \
             {"papers": [], "note": ("No paper was relevant enough (reranker score below "
@@ -1715,19 +1752,28 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
         listing = "\n".join(f"[{p['label']}] {p['arxiv_id']} ({p.get('year') or '?'}) {p['title']}" for p in shown)
         messages.append(SystemMessage(f"Papers currently shown to the user:\n{listing}"))
         vouched.update(p["arxiv_id"] for p in shown)
+        steps.append(f"[memory] {len(shown)} paper(s) on screen given to the model with their labels "
+                     f"({', '.join(str(p['label']) for p in shown)}).")
     messages.append(HumanMessage(question))
     start_context_tracking(diag)
     answer = ""
+    rounds = 0                       # LLM rounds used (tool rounds + the answer)
+    calls: dict[str, int] = {}       # tool name -> number of calls in this turn
     try:
         with_tools = llm.bind_tools(tools)
         for step in range(1, AGENT_MAX_STEPS + 1):
             log(f"Thinking (step {step})..." if step > 1 else "Planning the search...")
             ai = with_tools.invoke(messages, config=llm_config(f"agent step {step}"))
             messages.append(ai)
+            rounds = step
             if not ai.tool_calls:
                 answer = strip_thinking(ai.content if isinstance(ai.content, str) else str(ai.content))
+                steps.append(f"[agent] Round {step}: the model wrote its answer (no tool call).")
                 break
+            steps.append(f"[agent] Round {step}: the model called {len(ai.tool_calls)} tool(s): "
+                         + ", ".join(c["name"] for c in ai.tool_calls) + ".")
             for call in ai.tool_calls:
+                calls[call["name"]] = calls.get(call["name"], 0) + 1
                 tool = by_name.get(call["name"])
                 try:
                     result = tool.invoke(call.get("args") or {}) if tool else json.dumps(
@@ -1738,10 +1784,12 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
                 messages.append(ToolMessage(content=str(result), tool_call_id=call.get("id") or call["name"]))
         else:
             log("Writing the answer...")
-            steps.append(f"[agent] Step limit ({AGENT_MAX_STEPS}) reached -> asked for the answer without tools.")
+            steps.append(f"[agent] Step limit ({AGENT_MAX_STEPS} tool rounds) reached -> the model was asked for "
+                         "the answer without tools.")
             messages.append(HumanMessage("Stop searching. Answer the question now from the papers above, "
                                          "citing their arXiv ids."))
             ai = llm.invoke(messages, config=llm_config("agent final"))
+            rounds += 1
             answer = strip_thinking(ai.content if isinstance(ai.content, str) else str(ai.content))
     except Exception as exc:
         response.errors.append(f"The research assistant failed ({type(exc).__name__}: {exc}).")
@@ -1749,16 +1797,23 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
     finally:
         stop_context_tracking()
     diag += steps
+    # one line with the size of the turn: LLM rounds, searches run and the other tool calls
+    others = ", ".join(f"{name} x{n}" for name, n in calls.items() if name != "search_papers")
+    diag.append(f"[agent] Summary: {rounds} LLM round(s) of at most {AGENT_MAX_STEPS} + 1; "
+                f"{len(response.agent_searches)} search(es) run"
+                + (f" of {calls['search_papers']} requested" if calls.get("search_papers", 0)
+                   != len(response.agent_searches) else "")
+                + f"; other tool calls: {others or 'none'}; {len(found)} paper(s) available to cite.")
     # panel 'query' row: what the agent searched for (the reranker also scored against the question itself)
     diag.modified_query = " | ".join(s["query"] or "; ".join(s["authors"]) for s in response.agent_searches)
     if leaks_instructions(answer) and not response.errors:   # never show the system prompt
         response.errors.append(SCOPE_REFUSAL)
-        diag.append("[agent] Answer repeated the system prompt -> refused.")
+        diag.append("[scope] FAILED: the answer repeated the system prompt -> refused, answer not shown.")
         return response
     if "OUT_OF_SCOPE" in answer.upper().replace(" ", "_") and not response.errors:
         # off-topic or too vague: the fixed refusal, no papers (an error, so the turn is not remembered)
         response.errors.append(SCOPE_REFUSAL)
-        diag.append(f"[agent] Model judged the message out of scope or too vague -> refused "
+        diag.append(f"[scope] FAILED: the model judged the message out of scope or too vague -> refused "
                     f"({len(found)} paper(s) found were not shown).")
         return response
     if (response.agent_searches and not found and not response.errors
@@ -1766,13 +1821,14 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
         # it searched, but no paper reached the reranker cutoff (and none from the chat was used): say so plainly
         # instead of letting the model answer without sources
         response.errors.append(NOTHING_FOUND)
-        diag.append(f"[agent] {len(response.agent_searches)} search(es), no paper at or above the reranker cutoff "
-                    f"{AGENT_RERANK_CUTOFF} -> 'nothing found' reply (the model's answer was not shown).")
+        diag.append(f"[ranking] FAILED: {len(response.agent_searches)} search(es), no paper at or above the "
+                    f"reranker cutoff {AGENT_RERANK_CUTOFF} -> 'nothing found' reply (the model's answer was "
+                    "not shown).")
         return response
     if not answer and not response.errors:
         response.errors.append("The model gave no answer (it may have used its token budget on thinking); "
                                "please ask again, or use search= for a list of papers.")
-        diag.append("[agent] FAILED: empty answer.")
+        diag.append("[ranking] FAILED: the model returned an empty answer.")
     if response.errors:
         return response
 
@@ -1803,8 +1859,11 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
     response.memory_papers = list(cited)
     response.memory_note = "Papers cited: " + "; ".join(f"[{i}] [{h.arxiv_id}] {h.title}"
                                                          for i, h in enumerate(response.papers, start=1))
-    diag.append(f"[agent] Answer cites {len(cited)} of {len(found)} paper(s) found"
-                + (f"; UNVERIFIED ids (no tool returned them): {', '.join(unverified)}" if unverified else "") + ".")
+    # the agent's counterpart of the search route's [ranking] line: what the model chose to show, and from what
+    diag.append(f"[ranking] Agent answer (the model chooses what to cite): cites {len(cited)} of {len(found)} "
+                f"paper(s) the tools returned -> cards {', '.join(f'[{i}] {pid}' for i, pid in enumerate(cited, 1)) or 'none'}"
+                + (f"; WARNING: unverified ids (no tool returned them): {', '.join(unverified)}" if unverified else "")
+                + ".")
     if unverified:
         response.warnings.append(f"Ids not found by the search (may be invented): {', '.join(unverified)}.")
     return response
@@ -1818,6 +1877,8 @@ def rejected(message: str, parsed: ParsedMessage, error: str, diag_line: str) ->
         " ..." if len(message.split()) > 60 else "")
     response.diagnostics.mode = parsed.mode
     response.errors.append(error)
+    response.diagnostics.append("[mode] Message stopped by the input checks -> nothing was run (no model call, "
+                                "no search).")
     response.diagnostics += parsed.notes
     response.diagnostics.append(diag_line)
     return response
@@ -1862,9 +1923,20 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
             return rejected(message, parsed, SCOPE_REFUSAL,
                             f"[scope] '{question}' is too vague to search -> refused without a model call.")
         if AGENT_ENABLED:
-            answer = run_agent(question, log, select_history(history)[0], shown, known)
+            turns, memory_note = select_history(history)
+            answer = run_agent(question, log, turns, shown, known)
             answer.prompt = message
-            answer.diagnostics.messages[:0] = clean_notes + ["[query] No search= / title= -> the agent answers."]
+            # same frame as the search route: [mode] and the parser notes first, [memory], then the steps of
+            # the route, [context] (token use per LLM call) last
+            notes = clean_notes + ["[query] Parser: no search= / title= key -> answered by the agent."]
+            if parsed.mode_key == "analyze":
+                notes.append("[query] analyze= key: its text is the question for the agent.")
+            if parsed.meta_keys:
+                notes.append(f"[query] {' '.join(parsed.meta_keys)} typed without search= / title=: plain text for "
+                             "the agent, not a database filter (the model decides whether to filter).")
+            notes.append(memory_note + " The model gets them as chat messages (no follow-up rewrite)."
+                         if history else "[memory] No earlier turns in this chat.")
+            answer.diagnostics.finish_search(question, NUM_CTX, keyword="agent", parser_notes=notes)
             return answer
         parsed = parse_message(f"search= {question}", None)   # AGENT=0: searched as a topic
         parsed.notes[:0] = clean_notes + ["[query] No search= / title= and AGENT=0 -> searched as a topic."]
@@ -1879,15 +1951,20 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
                                          f"{what}, e.g. {MODE_EXAMPLES[mode]}.",
                         f"[query] Step 2 symbols (remove): nothing but symbols in the {mode}= text -> FAILED.")
     query = parsed.text
+    turns, memory_note = select_history(history)
     try:
         if mode == "title":
             response = run_title_query(query, log, meta=parsed)
+            memory_note = "[memory] Title lookups do not use the conversation (the title is searched as typed)."
         else:
-            response = run_query(query, log, select_history(history)[0], newest_first=newest_first, meta=parsed)
+            response = run_query(query, log, turns, newest_first=newest_first, meta=parsed)
+            if not history:
+                memory_note = "[memory] No earlier turns in this chat."
     finally:
         stop_context_tracking()
     response.diagnostics.finish_search(query, NUM_CTX, keyword=mode,
-                                       parser_notes=[f"[query] Parser: {parsed.summary()}"] + parsed.notes)
+                                       parser_notes=[f"[query] Parser: {parsed.summary()}"] + parsed.notes
+                                       + [memory_note])
     return response
 
 

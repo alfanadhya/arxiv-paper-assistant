@@ -114,6 +114,7 @@ export default function Diagnostics() {
                     <th className="text-left pr-2" title={isAgent ? "n-th search of the agent (hover: its query)" : undefined}>{isAgent ? "Search" : "Pool"}</th>
                     <th className="text-right pr-2" title="Position in the pool in Qdrant's hybrid (RRF) order">Qdrant</th>
                     <th className="text-right pr-2" title="Position after the cross-encoder reranker">Rerank</th>
+                    <th className="text-right pr-2" title="Places moved by the reranker: ↑ up, ↓ down, = unchanged">Change</th>
                     <th className="text-right pr-2" title="Cross-encoder score">Score</th>
                     <th className="text-right pr-2" title={isAgent ? "Position among the papers returned to the model (score at or above the cutoff)" : "Label the LLM saw"}>{isAgent ? "Returned" : "Sent"}</th>
                     {!isAgent && <th className="text-right pr-2" title="Order of the LLM's (or fallback's) pick">LLM</th>}
@@ -131,6 +132,10 @@ export default function Diagnostics() {
                       <td className="pr-2" title={isAgent ? r.search : undefined}>{r.pool}</td>
                       <td className="text-right pr-2" title={`${r.search} search #${r.search_rank}, RRF ${r.rrf_score}`}>{r.initial_rank}</td>
                       <td className="text-right pr-2">{cell(r.rerank_rank)}</td>
+                      <td className="text-right pr-2">{!r.rerank_rank || !r.initial_rank ? "–" :
+                        r.initial_rank === r.rerank_rank ? "=" :
+                        r.initial_rank > r.rerank_rank ? `↑${r.initial_rank - r.rerank_rank}` :
+                        `↓${r.rerank_rank - r.initial_rank}`}</td>
                       <td className="text-right pr-2">{r.rerank_score === null || r.rerank_score === undefined ? "–" : r.rerank_score.toFixed(2)}</td>
                       <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_label ? (isAgent ? r.llm_label : `[${r.llm_label}]`) : "–"}</td>
                       {!isAgent && <td className="text-right pr-2" title={r.picked_by === "skipped" ? "LLM ranking skipped" : undefined}>{r.llm_rank ? `${r.llm_rank}${r.picked_by === "fallback" ? "*" : ""}` : "–"}</td>}
