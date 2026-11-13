@@ -77,7 +77,7 @@ TITLE_CLOSE = 0.80       # (kept) old cut-off for switching to the reranker
 TITLE_BLEND_MIN = 0.60   # from here up to TITLE_EXACT: blend title similarity (mostly) with the reranker;
                          # below it the reranker counts most
 TITLE_SIM_WEIGHT = 0.7   # weight of the dominant signal in the blend (other signal gets 1 - this)
-K_TITLE = 50             # candidates checked for a title (many titles share phrases like "... is all you need")
+K_TITLE = 80             # candidates checked for a title (many titles share phrases like "... is all you need")
 K_TITLE_RERANK = 30      # (kept) old reranker pool size
 TITLE_POOL_BY_SIM = 10   # rerank pool = these best by title similarity ...
 TITLE_POOL_BY_QDRANT = 20   # ... plus Qdrant's top this many (deduplicated, at most 30)
