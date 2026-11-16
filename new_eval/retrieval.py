@@ -1,17 +1,18 @@
-import csv, re, sys
+import csv, re, sys, time
 from pathlib import Path
 
 # To let python read the app files (prompt_cleaning.py, threeofus_main.py) in the folder above
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from prompt_cleaning import collapse_repeats, remove_symbols, parse_message   # light: works on the laptop too
+from prompt_cleaning import collapse_repeats, remove_symbols, parse_message, length_problem   # light: works on the laptop too
 
-CASES_FILE = "my_eval/cases.csv"
-RESULTS_FILE = "my_eval/results.csv"
+HERE = Path(__file__).resolve().parent
+CASES_FILE = HERE / "cases.csv"
+RESULTS_FILE = HERE / "results.csv"
 K = 20   # papers fetched from Qdrant per search (K_RETRIEVE in the app)
 
-MODE = "fake"  # "lab" or "fake"
+MODE = "lab"  # "lab" or "fake"
 
 # Ranking stages recorded for every case, in pipeline order
 STAGES = ["raw", "cleaned", "paper_pool", "reranked", "sent_to_llm", "final"]
@@ -24,7 +25,8 @@ def load_cases(path):
         for row in reader:
             ids = row["relevant_id"].split(";")             # "a;b;c" -> ["a", "b", "c"]
             ids = [i.strip() for i in ids if i.strip()]     # buang spasi dan isian kosong
-            cases.append({"query": row["query"].strip(), "relevant_ids": ids})
+            cases.append({"goal": (row.get("goal") or "").strip(),   # what this case checks
+                          "query": row["query"].strip(), "relevant_ids": ids})
     return cases
 
 
@@ -37,11 +39,27 @@ def to_ids(hits):
     return [re.sub(r"v\d+$", "", h.arxiv_id) for h in hits]
 
 
-# Step A1 + A2 (same as run_turn in the app): clean symbols, then read the year= / author= keys
+# Step A1 + A2 (same as run_turn in the app): clean symbols, then read the year= / author= keys.
+# A message without search= / title= is searched as a topic (the app's AGENT=0 path); one that already has
+# a key is parsed exactly as typed, so its key errors are the app's own.
 def clean_and_parse(query):
     symbol_cleaned = remove_symbols(collapse_repeats(query))   # "Hiii!!!! 😩" -> "Hi!"
-    parsed = parse_message("search= " + symbol_cleaned)        # text + authors + years
+    parsed = parse_message(symbol_cleaned, None)
+    if parsed.mode_key not in ("search", "title"):
+        parsed = parse_message("search= " + symbol_cleaned, None)   # text + authors + years
     return symbol_cleaned, parsed
+
+
+# The app's input checks before any search (run_turn): length, key errors, empty topic. Error text or "".
+def input_error(query, parsed):
+    problem = length_problem(query)
+    if problem:
+        return problem[0]
+    if parsed.errors:
+        return " ".join(parsed.errors)
+    if not re.search(r"[^\W_]", parsed.text):
+        return "search= has no words left after removing symbols."
+    return ""
 
 
 # Empty result: every field the pipelines return, so run_all can always read them
@@ -59,6 +77,9 @@ def pipeline_fake(query):
     r = empty_result()
     r["symbol_cleaned"], parsed = clean_and_parse(query)
     r["parsed_text"] = r["author_stripped"] = parsed.text
+    r["errors"] = input_error(query, parsed)
+    if r["errors"]:                        # rejected: nothing is searched
+        return r
     r["cleaned_query"] = parsed.text.lower()                     # pura-pura LLM merapikan query
     r["survey_query"] = "survey of " + r["cleaned_query"]
     r["raw"] = search_fake(query)
@@ -81,6 +102,11 @@ def pipeline_lab(retriever, query):
     # A1 + A2: clean symbols, read the keys
     r["symbol_cleaned"], parsed = clean_and_parse(query)
     r["parsed_text"] = parsed.text
+
+    # A0: the app's input checks; a rejected message is not searched at all (not even the baseline)
+    r["errors"] = input_error(query, parsed)
+    if r["errors"]:
+        return r
 
     # Baseline: the query exactly as typed, no cleaning, no filters
     r["raw"] = to_ids(retriever.retrieve(query, K, MetadataIntent()))
@@ -170,14 +196,16 @@ def best_rank_in(ranks, relevant_ids):
 def run_all(cases, retriever=None):
     rows = []
     for i, c in enumerate(cases, start=1):
+        start = time.perf_counter()            # total time for this case: input checks -> final LLM pick
         if MODE == "lab":
             result = pipeline_lab(retriever, c["query"])
         else:
             result = pipeline_fake(c["query"])
+        seconds = round(time.perf_counter() - start, 2)
 
         rel = c["relevant_ids"]
         # Query at every step that changes it
-        row = {"case": i, "query": c["query"], "relevant_ids": ";".join(rel),
+        row = {"case": i, "goal": c["goal"], "query": c["query"], "relevant_ids": ";".join(rel),
                "symbol_cleaned": result["symbol_cleaned"], "parsed_text": result["parsed_text"],
                "author_stripped": result["author_stripped"], "cleaned_query": result["cleaned_query"],
                "survey_query": result["survey_query"], "filters": result["filters"], "errors": result["errors"]}
@@ -196,9 +224,10 @@ def run_all(cases, retriever=None):
         row["n_sent_to_llm"] = len(result["sent_to_llm"])
         row["picked_by"] = result["picked_by"]
         row["surveys_shown"] = ";".join(result["surveys_shown"])
+        row["time_s"] = seconds
         rows.append(row)
         print(f"case {i}: raw={row['raw_rank']} cleaned={row['cleaned_rank']} "
-              f"reranked={row['reranked_rank']} final={row['final_rank']} ({row['picked_by']})")
+              f"reranked={row['reranked_rank']} final={row['final_rank']} ({row['picked_by']}) {seconds:.2f}s")
 
     with open(RESULTS_FILE, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
@@ -214,6 +243,10 @@ if __name__ == "__main__":
     if MODE == "lab":
         import threeofus_main as app
         retriever = app.get_retriever()
+        # Load the reranker and the Ollama model before timing (the app does this at startup too),
+        # so case 1 is not charged for model loading
+        for line in app.health_check():
+            print("[warm-up]", line)
 
     rows = run_all(cases, retriever)
     print("Done. Results saved to", RESULTS_FILE)

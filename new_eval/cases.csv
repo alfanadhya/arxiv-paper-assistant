@@ -1,4 +1,20 @@
-query,relevant_id
-"Hiii!!!! I am doing a literature review on dense passage retrieval for open domain question answering and I am sooooo stuck... I need the original DPR paper by Karpukhin et al that trains a BERT dual encoder with in batch negatives, and also papers that build on it pleeeease!!!",2004.04906
-"Hi 😩 I am doing a literature review on dense passage retrieval for open domain question answering → I need the original DPR paper by Karpukhin et al that trains a BERT dual encoder with in batch negatives ,, and also papers that build on it :) 🙏",2004.04906
-"I am doing a literature review on dense+passage+retrieval for open-domain question/answering. I need the original DPR paper (arXiv:2004.04906) by Karpukhin et al. that trains a BERT dual-encoder with in-batch negatives, and also papers that build on it.",2004.04906
+goal,query,relevant_id
+collapse_repeats,"Hiii!!!! I am doing a literature review on dense passage retrieval for open domain question answering and I am sooooo stuck... I need the original DPR paper by Karpukhin that trains a BERT dual encoder with in batch negatives, and also papers that build on it pleeeease!!!",2004.04906
+remove_symbols,"Hi 😩 I am doing a literature review on dense passage retrieval for open domain question answering → I need the original DPR paper by Karpukhin that trains a BERT dual encoder with in batch negatives ,, and also papers that build on it :) 🙏",2004.04906
+symbols_to_spaces,"I am doing a literature review on dense+passage+retrieval for open-domain question/answering. I need the original DPR paper by Karpukhin that trains a BERT dual-encoder with in-batch negatives, and also papers that build on it.",2004.04906
+query_length_overflow,"I’m working on a literature review for my master’s thesis on retrieval methods for question answering systems, and I want to understand one paper in depth before I move on to newer work. The paper is “Dense Passage Retrieval for Open-Domain Question Answering” by Karpukhin et al., published at EMNLP 2020. I have read the abstract, but I still have many questions about the details, so please answer as completely as you can and cite the relevant sections of the paper.
+
+First, could you explain the dual-encoder architecture used in DPR? I would like to know how the question encoder and the passage encoder are built, whether they share weights, and why the authors chose BERT-base as the backbone. Please also describe how the similarity between a question and a passage is computed, and why a simple dot product was preferred over more complex similarity functions.
+
+Second, I am curious about the training procedure. How did the authors select positive and negative passages? What is the role of in-batch negatives, and how much did adding a BM25 hard negative improve the results? I would also like to know how many training examples were needed before DPR started to outperform BM25.
+
+Third, please summarize the main experimental results. Which datasets were used, such as Natural Questions, TriviaQA, WebQuestions, CuratedTREC, and SQuAD? How large was the improvement in top-20 retrieval accuracy compared with BM25, and why did DPR perform worse on SQuAD?
+
+Fourth, how did the retriever combine with the reader model to produce final answers, and what end-to-end exact match scores were reported?
+
+Finally, what limitations did the authors mention, and which later papers built directly on DPR, for example RAG, FiD, or ColBERT? Please keep the answer structured with headings so I can reuse it in my notes.",
+duplicate_year_key,search= gnn year=2019 year=2022,
+invalid_year_value,"search= dense passage retrieval year=202,",
+empty_search_value,dense retrieval search=,
+metadata_filters,search= dense passage retrieval year=2020 author=Karpukhin,2004.04906
+implicit_search_mode,dense retrieval author=Karpukhin,2004.04906
