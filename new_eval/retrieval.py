@@ -25,7 +25,9 @@ def load_cases(path):
         for row in reader:
             ids = row["relevant_id"].split(";")             # "a;b;c" -> ["a", "b", "c"]
             ids = [i.strip() for i in ids if i.strip()]     # buang spasi dan isian kosong
-            cases.append({"goal": (row.get("goal") or "").strip(),   # what this case checks
+            cases.append({"case": len(cases) + 1,                      # row number in cases.csv
+                          "split": (row.get("split") or "").strip(),   # dev / test
+                          "goal": (row.get("goal") or "").strip(),     # what this case checks
                           "query": row["query"].strip(), "relevant_ids": ids})
     return cases
 
@@ -34,9 +36,17 @@ def search_fake(query, k=20):
     return ["1906.00300", "2002.08909", "2004.04906", "2007.00808"][:k]
 
 
-# Ubah daftar hasil Qdrant jadi daftar arxiv id
+# Change Qdrant results to a list of arxiv ids
 def to_ids(hits):
     return [re.sub(r"v\d+$", "", h.arxiv_id) for h in hits]
+
+
+# {arxiv_id: score} from a ranked list; a paper listed twice keeps its first (best) score
+def first_score(ids, scores):
+    result = {}
+    for pid, score in zip(ids, scores):
+        result.setdefault(pid, round(float(score), 4))
+    return result
 
 
 # Step A1 + A2 (same as run_turn in the app): clean symbols, then read the year= / author= keys.
@@ -66,7 +76,7 @@ def input_error(query, parsed):
 def empty_result():
     result = {"symbol_cleaned": "", "parsed_text": "", "author_stripped": "", "cleaned_query": "",
               "survey_query": "", "filters": "none", "errors": "", "dense_ranks": {}, "sparse_ranks": {},
-              "surveys_shown": [], "picked_by": ""}
+              "rrf_scores": {}, "rerank_scores": {}, "surveys_shown": [], "picked_by": ""}
     for stage in STAGES:
         result[stage] = []
     return result
@@ -136,6 +146,7 @@ def pipeline_lab(retriever, query):
     r["cleaned"] = to_ids(main_hits)
     r["dense_ranks"] = {pid: h.dense_rank for pid, h in zip(r["cleaned"], main_hits)}
     r["sparse_ranks"] = {pid: h.sparse_rank for pid, h in zip(r["cleaned"], main_hits)}
+    r["rrf_scores"] = first_score(r["cleaned"], [h.vector_score for h in main_hits])   # Qdrant hybrid (RRF) score
 
     # Pool split: research papers vs surveys (title contains "survey")
     paper_pool = [] if survey_focus else [h for h in main_hits if not app.is_survey(h)]
@@ -147,9 +158,11 @@ def pipeline_lab(retriever, query):
     r["paper_pool"] = to_ids(paper_pool)
 
     # B4: cross-encoder rerank, each pool separately
-    papers_ranked, _ = app.rerank_hits(a.corrected_query, paper_pool)
+    papers_ranked, paper_scores = app.rerank_hits(a.corrected_query, paper_pool)
     surveys_ranked, _ = app.rerank_hits(a.corrected_query, survey_pool)
     r["reranked"] = to_ids(papers_ranked)
+    if len(paper_pool) >= 2:   # with < 2 papers rerank_hits skips the model and returns 0.0, not a real score
+        r["rerank_scores"] = first_score(r["reranked"], paper_scores)   # cross-encoder score (higher = better)
     r["surveys_shown"] = to_ids(surveys_ranked[:app.SURVEYS_SHOWN])
 
     # B5: N+2 (or N+1 if the LLM context is too small)
@@ -192,11 +205,21 @@ def best_rank_in(ranks, relevant_ids):
     return min(found) if found else None
 
 
+# Best score of a relevant paper in a {arxiv_id: score} dict, and the score of the #1 paper in that list
+# (to compare against); None if not there
+def target_and_top_score(scores, relevant_ids):
+    found = [scores[pid] for pid in relevant_ids if pid in scores]
+    target = max(found) if found else None
+    top = max(scores.values()) if scores else None
+    return target, top
+
+
 # Run all cases, calculate metrics, and save to CSV. retriever=None means fake mode.
 def run_all(cases, retriever=None):
     rows = []
-    for i, c in enumerate(cases, start=1):
-        start = time.perf_counter()            # total time for this case: input checks -> final LLM pick
+    for c in cases:
+        i = c["case"]
+        start = time.perf_counter()           # total time for this case: input checks -> final LLM pick
         if MODE == "lab":
             result = pipeline_lab(retriever, c["query"])
         else:
@@ -205,7 +228,7 @@ def run_all(cases, retriever=None):
 
         rel = c["relevant_ids"]
         # Query at every step that changes it
-        row = {"case": i, "goal": c["goal"], "query": c["query"], "relevant_ids": ";".join(rel),
+        row = {"split": c["split"], "case": i, "goal": c["goal"], "query": c["query"], "relevant_ids": ";".join(rel),
                "symbol_cleaned": result["symbol_cleaned"], "parsed_text": result["parsed_text"],
                "author_stripped": result["author_stripped"], "cleaned_query": result["cleaned_query"],
                "survey_query": result["survey_query"], "filters": result["filters"], "errors": result["errors"]}
@@ -221,6 +244,9 @@ def run_all(cases, retriever=None):
         # Inside the hybrid search: who found the relevant paper, dense (meaning) or sparse (keywords)?
         row["dense_rank"] = best_rank_in(result["dense_ranks"], rel)
         row["sparse_rank"] = best_rank_in(result["sparse_ranks"], rel)
+        # Scores of the relevant paper, next to the score of the #1 paper in the same list
+        row["rrf_score"], row["rrf_top1_score"] = target_and_top_score(result["rrf_scores"], rel)
+        row["rerank_score"], row["rerank_top1_score"] = target_and_top_score(result["rerank_scores"], rel)
         row["n_sent_to_llm"] = len(result["sent_to_llm"])
         row["picked_by"] = result["picked_by"]
         row["surveys_shown"] = ";".join(result["surveys_shown"])
@@ -238,6 +264,11 @@ def run_all(cases, retriever=None):
 
 if __name__ == "__main__":
     cases = load_cases(CASES_FILE)
+    # Optional: only one split, e.g.  python new_eval/retrieval.py --split dev
+    if "--split" in sys.argv:
+        split = sys.argv[sys.argv.index("--split") + 1]
+        cases = [c for c in cases if c["split"] == split]
+        print(f"Split '{split}': {len(cases)} cases")
 
     retriever = None
     if MODE == "lab":
