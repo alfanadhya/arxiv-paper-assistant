@@ -1,26 +1,77 @@
-"""The database that stores chat history (the left panel), as one SQLite file: history.db.
+"""The database that stores chat history (the left panel), login accounts and per-user settings.
+
+Two backends, chosen by DB_BACKEND in .env:
+  - sqlite (default): one SQLite file, history.db, next to this file (local use);
+  - postgres: the URL in DATABASE_URL, e.g. postgresql://user:pass@host/db?sslmode=require (Neon, Supabase).
+    Needs outbound port 5432 (some networks, and Hugging Face Spaces, block it). For a hosted app
+    whose disk is wiped on restart, so accounts and chats survive. The DIRECT (non-pooled) connection string
+    is used: DATABASE_URL_UNPOOLED if set (Neon writes it), else DATABASE_URL. Chainlit's asyncpg driver uses
+    prepared statements, which a transaction pooler (PgBouncer) breaks.
 
 Chainlit's SQLAlchemyDataLayer writes users, threads (= chats), steps (= messages),
 elements (= files) and feedbacks into these 5 tables. It doesn't create them itself,
-so create_tables() does that once on startup. The column names must match what
-Chainlit writes, which is why they're in camelCase with quotes.
+so create_tables() does that once per process. The column names must match what
+Chainlit writes, which is why they're in camelCase with quotes. Chainlit sends "tags" as a Python list,
+so on Postgres that column is TEXT[]; its other JSON fields arrive as text.
 
-SQLite is a single file, which is fine locally. For a hosted app whose disk gets
-wiped on restart, switch DATABASE_URL to a free hosted Postgres (e.g. Neon/Supabase).
-
-Check the file afterwards:  .venv/Scripts/python.exe -X utf8 db.py
+Check the database afterwards:  python -X utf8 db.py
 
 Login accounts (table "accounts", salted scrypt hashes):
     python db.py adduser NAME     create an account / reset its password (asks for the password)
     python db.py deluser NAME     remove an account (its chats are kept)
     python db.py users            list accounts
+    python db.py migrate          copy everything from history.db into the Postgres in DATABASE_URL
 """
 
+import os
 import sqlite3
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, inspect, text
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 DB_FILE = Path(__file__).resolve().parent / "history.db"
-DATABASE_URL = f"sqlite+aiosqlite:///{DB_FILE.as_posix()}"
+# Postgres only on explicit opt-in (DB_BACKEND=postgres): tools such as `neon init` write DATABASE_URL into
+# .env by themselves, and a network that blocks port 5432 would then make the app hang at startup.
+# Neon writes both a pooled DATABASE_URL and a direct DATABASE_URL_UNPOOLED; the direct one is preferred.
+_RAW_URL = (os.getenv("DATABASE_URL_UNPOOLED") or os.getenv("DATABASE_URL") or "").strip()
+IS_POSTGRES = os.getenv("DB_BACKEND", "sqlite").strip().lower() == "postgres" and \
+    _RAW_URL.split("://", 1)[0].split("+", 1)[0] in ("postgres", "postgresql")
+
+
+# One Postgres URL -> (sync URL for psycopg, async URL for Chainlit's asyncpg, SSL required?).
+# asyncpg rejects libpq options such as sslmode in the URL, so SSL is passed to Chainlit separately.
+def _postgres_urls(url: str) -> tuple[str, str, bool]:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query))
+    ssl = query.get("sslmode", "") in ("require", "verify-ca", "verify-full")
+    sync = urlunsplit(parts._replace(scheme="postgresql+psycopg"))
+    async_query = {k: v for k, v in query.items() if k not in ("sslmode", "channel_binding")}
+    async_ = urlunsplit(parts._replace(scheme="postgresql+asyncpg", query=urlencode(async_query)))
+    return sync, async_, ssl
+
+
+if IS_POSTGRES:
+    SYNC_URL, DATABASE_URL, SSL_REQUIRE = _postgres_urls(_RAW_URL)
+else:
+    SYNC_URL = f"sqlite:///{DB_FILE.as_posix()}"
+    DATABASE_URL = f"sqlite+aiosqlite:///{DB_FILE.as_posix()}"   # used by Chainlit (async)
+    SSL_REQUIRE = False
+
+_engine = None
+_tables_ready = False
+
+
+# The sync engine for our own queries (accounts, prefs, the CLI); created once.
+def engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(SYNC_URL, pool_pre_ping=True)
+    return _engine
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -35,7 +86,7 @@ CREATE TABLE IF NOT EXISTS threads (
     "name" TEXT,
     "userId" TEXT REFERENCES users("id") ON DELETE CASCADE,
     "userIdentifier" TEXT,
-    "tags" TEXT,
+    "tags" {TAGS},
     "metadata" TEXT
 );
 CREATE TABLE IF NOT EXISTS steps (
@@ -48,7 +99,7 @@ CREATE TABLE IF NOT EXISTS steps (
     "waitForAnswer" BOOLEAN,
     "isError" BOOLEAN,
     "metadata" TEXT,
-    "tags" TEXT,
+    "tags" {TAGS},
     "input" TEXT,
     "output" TEXT,
     "createdAt" TEXT,
@@ -103,9 +154,22 @@ CREATE TABLE IF NOT EXISTS prefs (
 """
 
 
+# The CREATE TABLE statements for this backend (comments dropped, one statement each).
+def _schema_statements() -> list[str]:
+    sql = SCHEMA.replace("{TAGS}", "TEXT[]" if IS_POSTGRES else "TEXT")
+    sql = "\n".join(line for line in sql.splitlines() if not line.strip().startswith("--"))
+    return [s.strip() for s in sql.split(";") if s.strip()]
+
+
+# Create the tables if missing; runs once per process (on Postgres every call would be a network round trip).
 def create_tables() -> None:
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.executescript(SCHEMA)
+    global _tables_ready
+    if _tables_ready:
+        return
+    with engine().begin() as conn:
+        for statement in _schema_statements():
+            conn.execute(text(statement))
+    _tables_ready = True
 
 
 # ---------------------------------------------------------------- login accounts (salted scrypt hashes)
@@ -143,28 +207,28 @@ def set_account(username: str, password: str) -> str:
     if not name or not password:
         raise ValueError("username and password must not be empty")
     create_tables()
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute('INSERT INTO accounts ("username", "password_hash", "createdAt") VALUES (?, ?, ?) '
-                     'ON CONFLICT("username") DO UPDATE SET "password_hash" = excluded."password_hash"',
-                     (name, hash_password(password), datetime.now(timezone.utc).isoformat()))
+    with engine().begin() as conn:
+        conn.execute(text('INSERT INTO accounts ("username", "password_hash", "createdAt") VALUES (:u, :h, :c) '
+                          'ON CONFLICT ("username") DO UPDATE SET "password_hash" = excluded."password_hash"'),
+                     {"u": name, "h": hash_password(password), "c": datetime.now(timezone.utc).isoformat()})
     return name
 
 
 # ---------------------------------------------------------------- per-user GUI settings
 def get_pref(username: str, key: str, default: str | None = None) -> str | None:
     create_tables()
-    with sqlite3.connect(DB_FILE) as conn:
-        row = conn.execute('SELECT "value" FROM prefs WHERE "username" = ? AND "key" = ?',
-                           (normalize_username(username), key)).fetchone()
+    with engine().connect() as conn:
+        row = conn.execute(text('SELECT "value" FROM prefs WHERE "username" = :u AND "key" = :k'),
+                           {"u": normalize_username(username), "k": key}).fetchone()
     return row[0] if row else default
 
 
 def set_pref(username: str, key: str, value: str) -> None:
     create_tables()
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute('INSERT INTO prefs ("username", "key", "value") VALUES (?, ?, ?) '
-                     'ON CONFLICT("username", "key") DO UPDATE SET "value" = excluded."value"',
-                     (normalize_username(username), key, value))
+    with engine().begin() as conn:
+        conn.execute(text('INSERT INTO prefs ("username", "key", "value") VALUES (:u, :k, :v) '
+                          'ON CONFLICT ("username", "key") DO UPDATE SET "value" = excluded."value"'),
+                     {"u": normalize_username(username), "k": key, "v": value})
 
 
 USERNAME_RULE ="3-32 characters: lowercase letters, digits, '.', '_' or '-'"
@@ -184,31 +248,33 @@ def create_account(username: str, password: str) -> str:
     if len(password or "") < MIN_PASSWORD:
         raise ValueError(f"Password must be at least {MIN_PASSWORD} characters.")
     create_tables()
-    with sqlite3.connect(DB_FILE) as conn:
-        if conn.execute('SELECT 1 FROM users WHERE "identifier" = ?', (name,)).fetchone() and \
-                not conn.execute('SELECT 1 FROM accounts WHERE "username" = ?', (name,)).fetchone():
+    with engine().begin() as conn:
+        if conn.execute(text('SELECT 1 FROM users WHERE "identifier" = :u'), {"u": name}).fetchone() and \
+                not conn.execute(text('SELECT 1 FROM accounts WHERE "username" = :u'), {"u": name}).fetchone():
             raise ValueError("That username is reserved. Please choose another one.")
         # DO NOTHING on a duplicate, so two simultaneous sign-ups can't overwrite each other's password.
         created = conn.execute(
-            'INSERT INTO accounts ("username", "password_hash", "createdAt") VALUES (?, ?, ?) '
-            'ON CONFLICT("username") DO NOTHING',
-            (name, hash_password(password), datetime.now(timezone.utc).isoformat())).rowcount > 0
+            text('INSERT INTO accounts ("username", "password_hash", "createdAt") VALUES (:u, :h, :c) '
+                 'ON CONFLICT ("username") DO NOTHING'),
+            {"u": name, "h": hash_password(password), "c": datetime.now(timezone.utc).isoformat()}).rowcount > 0
     if not created:
         raise ValueError("That username is already taken.")
     return name
 
 
-# Remove the login only; the user's chats stay in history.db (re-adding the name gives them back).
+# Remove the login only; the user's chats stay in the database (re-adding the name gives them back).
 def delete_account(username: str) -> bool:
-    with sqlite3.connect(DB_FILE) as conn:
-        return conn.execute('DELETE FROM accounts WHERE "username" = ?',
-                            (normalize_username(username),)).rowcount > 0
+    create_tables()
+    with engine().begin() as conn:
+        return conn.execute(text('DELETE FROM accounts WHERE "username" = :u'),
+                            {"u": normalize_username(username)}).rowcount > 0
 
 
 def list_accounts() -> list[tuple[str, str]]:
     create_tables()
-    with sqlite3.connect(DB_FILE) as conn:
-        return conn.execute('SELECT "username", "createdAt" FROM accounts ORDER BY "username"').fetchall()
+    with engine().connect() as conn:
+        return [tuple(r) for r in conn.execute(
+            text('SELECT "username", "createdAt" FROM accounts ORDER BY "username"')).fetchall()]
 
 
 # The normalized username if the password matches its account, else None.
@@ -217,8 +283,9 @@ def check_login(username: str, password: str) -> str | None:
     if not name or not password:
         return None
     create_tables()
-    with sqlite3.connect(DB_FILE) as conn:
-        row = conn.execute('SELECT "password_hash" FROM accounts WHERE "username" = ?', (name,)).fetchone()
+    with engine().connect() as conn:
+        row = conn.execute(text('SELECT "password_hash" FROM accounts WHERE "username" = :u'),
+                           {"u": name}).fetchone()
     return name if row and verify_password(password, row[0]) else None
 
 
@@ -333,13 +400,73 @@ def make_data_layer():
                   flush=True)
 
     create_tables()
-    return CleanupDataLayer(conninfo=DATABASE_URL)
+    return CleanupDataLayer(conninfo=DATABASE_URL, ssl_require=SSL_REQUIRE)
+
+
+# ---------------------------------------------------------------- copy history.db -> Postgres
+# Tables in foreign-key order. SQLite keeps booleans as 0/1 and "tags" as JSON text; Postgres wants bool / TEXT[].
+MIGRATE_TABLES = ["users", "threads", "steps", "elements", "feedbacks", "accounts", "prefs"]
+BOOL_COLUMNS = {"streaming", "waitForAnswer", "isError", "defaultOpen", "autoCollapse"}
+
+
+def _to_postgres(column: str, value):
+    import json
+    if value is None:
+        return None
+    if column in BOOL_COLUMNS:
+        return bool(value)
+    if column == "tags":
+        return json.loads(value) if isinstance(value, str) else list(value)
+    return value
+
+
+# Copy every row of history.db into the Postgres in DATABASE_URL; rows already there (same key) are kept.
+def migrate_sqlite_to_postgres() -> None:
+    if not IS_POSTGRES:
+        raise SystemExit("Set DATABASE_URL to a Postgres URL in .env first.")
+    if not DB_FILE.exists():
+        raise SystemExit(f"{DB_FILE} not found: nothing to copy.")
+    create_tables()
+    src = sqlite3.connect(DB_FILE)
+    src.row_factory = sqlite3.Row
+    with engine().begin() as conn:
+        for table in MIGRATE_TABLES:
+            rows = [dict(r) for r in src.execute(f'SELECT * FROM "{table}"')]
+            if not rows:
+                print(f"{table:<10} 0 rows")
+                continue
+            columns = list(rows[0].keys())
+            quoted = ", ".join('"' + c + '"' for c in columns)
+            values = ", ".join(f":p{i}" for i in range(len(columns)))
+            sql = f'INSERT INTO "{table}" ({quoted}) VALUES ({values}) ON CONFLICT DO NOTHING'
+            added = 0
+            for row in rows:
+                params = {f"p{i}": _to_postgres(c, row[c]) for i, c in enumerate(columns)}
+                added += conn.execute(text(sql), params).rowcount
+            print(f"{table:<10} {added} of {len(rows)} rows copied")
+    src.close()
+
+
+# Row counts per table and the latest chats, for either backend.
+def show_summary() -> None:
+    create_tables()
+    print(f"Database: {'Postgres' if IS_POSTGRES else DB_FILE}")
+    with engine().connect() as conn:
+        for table in sorted(inspect(conn).get_table_names()):
+            count = conn.execute(text(f'SELECT COUNT(*) FROM "{table}"')).scalar()
+            print(f"{table:<10} {count} rows")
+        print("\nlatest chats:")
+        for name, user, created in conn.execute(text(
+                'SELECT "name", "userIdentifier", "createdAt" FROM threads ORDER BY "createdAt" DESC LIMIT 5')):
+            print(f"  {created}  {user or '-':<10} {name}")
 
 
 def _account_cli(args: list[str]) -> None:
     from getpass import getpass
     cmd = args[0]
-    if cmd == "users":
+    if cmd == "migrate":
+        migrate_sqlite_to_postgres()
+    elif cmd == "users":
         rows = list_accounts()
         for name, created in rows:
             print(f"  {name:<20} created {created}")
@@ -352,7 +479,7 @@ def _account_cli(args: list[str]) -> None:
     elif cmd == "deluser" and len(args) == 2:
         print("Account removed (chats kept)." if delete_account(args[1]) else "No such account.")
     else:
-        sys.exit("Usage: python db.py [users | adduser NAME | deluser NAME]")
+        sys.exit("Usage: python db.py [users | adduser NAME | deluser NAME | migrate]")
 
 
 if __name__ == "__main__":
@@ -360,12 +487,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         _account_cli(sys.argv[1:])
         sys.exit()
-    create_tables()
-    with sqlite3.connect(DB_FILE) as conn:
-        for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"):
-            count = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-            print(f"{table:<10} {count} rows")
-        print("\nlatest chats:")
-        for name, user, created in conn.execute(
-                'SELECT "name", "userIdentifier", "createdAt" FROM threads ORDER BY "createdAt" DESC LIMIT 5'):
-            print(f"  {created}  {user:<10} {name}")
+    show_summary()

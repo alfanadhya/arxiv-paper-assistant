@@ -328,9 +328,16 @@
 })();
 
 // 4. Login page: a "Create an account" link to /signup, and a note after a successful sign-up.
+// The link is only shown when the server allows sign-up (ALLOW_SIGNUP, asked once via /signup-enabled).
 (function () {
+  let signupEnabled = null;   // null = not known yet
+  fetch("/signup-enabled")
+    .then((r) => r.json())
+    .then((j) => { signupEnabled = !!j.enabled; addSignupLink(); })
+    .catch(() => { signupEnabled = true; addSignupLink(); });
+
   function addSignupLink() {
-    if (!location.pathname.startsWith("/login")) return;
+    if (!location.pathname.startsWith("/login") || signupEnabled !== true) return;
     const pw = document.querySelector('form input[type="password"]');
     const form = pw && pw.closest("form");
     if (!form || form.querySelector("[data-signup-link]")) return;

@@ -43,6 +43,8 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")   # list your models: Groq().models.list()
 LLM_MODEL = GROQ_MODEL if LLM_PROVIDER == "groq" else OLLAMA_MODEL
 LLM_LABEL = f"Groq ({GROQ_MODEL})" if LLM_PROVIDER == "groq" else f"Ollama ({OLLAMA_MODEL})"
+# Self sign-up on /signup. ALLOW_SIGNUP=0 closes it (e.g. one shared account made with  python db.py adduser NAME).
+ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "1").strip().lower() not in ("0", "false", "no", "off")
 SHOW_REASONING = os.getenv("SHOW_REASONING", "0") == "1"
 
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")   # cross-encoder reranker
@@ -2051,10 +2053,21 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
 <span class="hint">Already have an account? <a href="/login">Log in</a></span>
 </form></body></html>""")
 
+    def _signup_closed() -> HTMLResponse:
+        return HTMLResponse('<!doctype html><meta charset="utf-8"><title>Sign up</title>'
+                            '<p style="font-family:system-ui,sans-serif;text-align:center;margin-top:20vh">'
+                            'Sign-up is closed. <a href="/login">Back to log in</a></p>', status_code=403)
+
     async def gui_signup_form():
-        return _signup_page()
+        return _signup_page() if ALLOW_SIGNUP else _signup_closed()
+
+    # Tells the login page (public/custom.js) whether to show the "Create an account" link.
+    async def gui_signup_enabled():
+        return JSONResponse({"enabled": ALLOW_SIGNUP})
 
     async def gui_signup(username: str = Form(""), password: str = Form(""), password2: str = Form("")):
+        if not ALLOW_SIGNUP:
+            return _signup_closed()
         if password != password2:
             return _signup_page("Passwords do not match.", username)
         try:
@@ -2084,10 +2097,11 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         db.set_pref(current_user.identifier, NEWEST_FIRST_PREF, "1" if value else "0")
         return JSONResponse({"value": value})
 
-    _OWN_ROUTES = ("/signup", "/prefs/newest-first")
+    _OWN_ROUTES = ("/signup", "/signup-enabled", "/prefs/newest-first")
     _server.router.routes[:] = [r for r in _server.router.routes if getattr(r, "path", None) not in _OWN_ROUTES]
     _server.add_api_route("/signup", gui_signup_form, methods=["GET"], response_class=HTMLResponse)
     _server.add_api_route("/signup", gui_signup, methods=["POST"])
+    _server.add_api_route("/signup-enabled", gui_signup_enabled, methods=["GET"])
     _server.add_api_route("/prefs/newest-first", gui_get_newest_first, methods=["GET"])
     _server.add_api_route("/prefs/newest-first", gui_set_newest_first, methods=["POST"])
     # stable sort: our routes go in front of Chainlit's catch-all UI route

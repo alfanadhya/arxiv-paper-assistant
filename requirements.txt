@@ -3,8 +3,12 @@
 
 # Web GUI + chat history database (SQLite) - threeofus_main.py, app.py, db.py
 chainlit==2.12.0
-SQLAlchemy==2.1.8
+# [asyncio] pulls in greenlet, which Chainlit's chat-history layer needs (missing on a fresh server otherwise)
+SQLAlchemy[asyncio]==2.1.8
 aiosqlite==0.22.1
+# Hosted Postgres for chat history and accounts (DATABASE_URL in .env) - db.py
+asyncpg==0.32.0
+psycopg[binary]==3.3.9
 
 # LLM (Gemini 2.5 Flash via LangChain) - chat.py
 langchain-google-genai==4.4.3
