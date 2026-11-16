@@ -159,10 +159,16 @@ def pipeline_lab(retriever, query):
 
     # B4: cross-encoder rerank, each pool separately
     papers_ranked, paper_scores = app.rerank_hits(a.corrected_query, paper_pool)
-    surveys_ranked, _ = app.rerank_hits(a.corrected_query, survey_pool)
+    surveys_ranked, survey_scores = app.rerank_hits(a.corrected_query, survey_pool)
     r["reranked"] = to_ids(papers_ranked)
-    if len(paper_pool) >= 2:   # with < 2 papers rerank_hits skips the model and returns 0.0, not a real score
-        r["rerank_scores"] = first_score(r["reranked"], paper_scores)   # cross-encoder score (higher = better)
+    r["rerank_scores"] = first_score(r["reranked"], paper_scores)   # cross-encoder score (higher = better)
+
+    # Relevance gate (same rule as run_query): best score of both pools below the threshold -> nothing shown
+    best = app.best_rerank_score(paper_scores, survey_scores)
+    if best is not None and best < app.RERANK_MIN_SCORE:
+        r["errors"] = f"relevance gate: best rerank score {best:.4f} < {app.RERANK_MIN_SCORE}"
+        r["picked_by"] = "gate"
+        return r
     r["surveys_shown"] = to_ids(surveys_ranked[:app.SURVEYS_SHOWN])
 
     # B5: N+2 (or N+1 if the LLM context is too small)

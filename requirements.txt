@@ -11,6 +11,8 @@ langchain-google-genai==4.4.3
 
 # Local LLM via Ollama - threeofus_main.py
 langchain-ollama==1.1.0
+# Hosted LLM via Groq (LLM_PROVIDER=groq) - threeofus_main.py
+langchain-groq==1.2.0
 
 # Loads GOOGLE_API_KEY / QDRANT_URL from .env - chat.py
 python-dotenv==1.2.4

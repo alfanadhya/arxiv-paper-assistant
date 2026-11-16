@@ -44,11 +44,11 @@ out_of_domain,dev,search= best hiking trails in Seoul for beginner,
 out_of_domain,dev,search= home medicine for a sore throat,
 out_of_domain,test,search= cheap flights from Jakarta to Incheon year=2026,
 out_of_domain,test,search= how to fix a leaking kitchen faucet,
-typo,dev,search= dens retreivl,
-typo,dev,search= prmptin lang modl to reason,
-typo,dev,search= zeroshot dnse reteval,
-typo,test,search= long contxt lng mdel,
-typo,test,search= transfrmr slf attntin,
+typo,dev,search= dens retreivl,2004.04906
+typo,dev,search= prmptin lang modl to reason,2201.11903
+typo,dev,search= zeroshot dnse reteval,2212.10496
+typo,test,search= long contxt lng mdel,2307.03172
+typo,test,search= transfrmr slf attntin,1706.03762
 relevance,dev,"Could you suggest research that explores a pre-trained encoder-decoder architecture aimed at comprehending and generating code, potentially beneficial for enhancing automated code repair systems?",2109.00859
 relevance,dev,Is there any work that attacks language models in dialogue generation?,2305.03655
 relevance,dev,Is there any paper that tried fine-tuning mBERT to enhance word-level alignment in a multilingual setting?,2101.08231
