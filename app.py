@@ -528,7 +528,7 @@ async def resume(thread: dict) -> None:
     if reading_list():
         await refresh_sidebar()
     await push_list_count()
-    await show_mode(None)   # no remembered mode: the banner is neutral until the next message
+    await show_mode(None)   # no remembered mode: the message box border is grey until the next message
 
 
 # ---------------------------------------------------------------- reading list

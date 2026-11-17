@@ -145,14 +145,14 @@ cot = "full"
 
 # Specify a CSS file that can be used to customize the user interface.
 # The CSS file can be served from the public directory or via an external link.
-custom_css = "/public/theme.css?v=11"  # Base look + Home screen (bump v to bust cache)
+custom_css = "/public/theme.css?v=14"  # Base look + Home screen (bump v to bust cache)
 
 # Specify additional attributes for a custom CSS file
 # custom_css_attributes = "media=\"print\""
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-custom_js = "/public/custom.js?v=34"  # light theme, settings button, resizable chat list, plain chat list, toast ×, fresh chat after deleting all chats, reading-list tab (in-chat buttons hidden), sign-up link, newest-first box, usage-hint banner + message box border per message, loading animation, no avatar on the greeting (bump v to bust cache)
+custom_js = "/public/custom.js?v=36"  # light theme, settings button, resizable chat list, plain chat list, toast ×, fresh chat after deleting all chats, reading-list tab (in-chat buttons hidden), sign-up link, newest-first box, message box border per message, loading animation, no avatar on the greeting (bump v to bust cache)
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"

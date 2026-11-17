@@ -239,7 +239,7 @@ body { font-family: var(--f-body); -webkit-font-smoothing: antialiased; backgrou
 /* Greeting and start-up message: no avatar (custom.js sets data-no-avatar); hidden, so the text stays aligned */
 .ai-message[data-no-avatar] > :first-child { visibility: hidden; }
 /* The Home screen takes the full column width (no avatar space), so it is centred on the same axis as the
-   message box and the usage-hint banner in the top bar */
+   message box */
 .ai-message[data-no-avatar]:has(.home) > :first-child { display: none; }
 
 /* ------------------------------------------------------------------ login page (public/custom.js section 11) */
@@ -388,3 +388,11 @@ html[data-auth-page] img.logo { display: none !important; }
   background: transparent; font-size: 14px; color: var(--c-carbon); cursor: pointer; text-align: left;
 }
 #account-menu [role="menuitem"]:hover, #account-menu [role="menuitem"]:focus-visible { background: var(--c-ash); outline: none; }
+
+/* ------------------------------------------------------------------ top bar */
+/* The top bar is its own surface, like the left pane: the same faint grey plane with a hairline below it, so
+   the white chat area is framed on two sides. The left pane's top row gets the same line, so both meet. */
+#header { background: hsl(var(--sidebar-background)); border-bottom: 1px solid var(--c-line);
+          height: 60px !important; min-height: 60px; flex-shrink: 0; box-sizing: border-box; }
+[data-sidebar="sidebar"] > [data-sidebar="header"] { border-bottom: 1px solid var(--c-line);
+                                                     height: 60px; box-sizing: border-box; justify-content: center; }

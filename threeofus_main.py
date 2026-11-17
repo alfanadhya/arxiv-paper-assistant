@@ -2654,7 +2654,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         record_trace()
         cl.user_session.set("selection", ChunkSelection())
         await send_settings()
-        await gui.show_mode(None)   # banner: neutral until the first message
+        await gui.show_mode(None)   # message box border: grey until the first message
         await gui.send_welcome()
         # Start-up check as a status panel (public/elements/Status.jsx): a live checklist, then one line
         status = gui.new_status()

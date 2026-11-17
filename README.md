@@ -116,7 +116,7 @@ New-NetFirewallRule -DisplayName "Chainlit 8000" -Direction Inbound -Protocol TC
 | `app.py` | GUI helpers: Home screen message, paper cards, Select buttons, reading-list panel, per-message signal for the input border, chat resume |
 | `db.py` | `history.db` (SQLite): chats, accounts, preferences; per-user access checks; account commands |
 | `export.py` | Builds the reading-list zip: BibTeX, PDFs from arXiv, selected chunks |
-| `public/custom.js` | Page tweaks: light theme, usage-hint banner, input border colour per message, plain chat list, Newest first checkbox, Settings button, sign-up link, reading-list tab, loading animation, toasts |
+| `public/custom.js` | Page tweaks: light theme, input border colour per message, plain chat list, Newest first checkbox, Settings button, sign-up link, reading-list tab, loading animation, toasts |
 | `public/theme.json`, `public/theme.css` | Look of the app (light "Base" style: colours, fonts, Home screen, loading animation); bump `?v=` in config.toml after a change |
 | `public/elements/Home.jsx` | Home screen shown when a chat starts |
 | `public/avatars/` | Grey circle used as the assistant's avatar |

@@ -307,56 +307,47 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     right.prepend(label);   // in front of the buttons on the right of the top bar
   }
 
+  let loading = false;
+  let lastTry = 0;   // at most one try every 3 s, whatever the server answers
   async function load() {
     if (location.pathname.startsWith("/login") || location.pathname.startsWith("/signup")) return;
+    if (loading || Date.now() - lastTry < 3000) return;
+    loading = true;
+    lastTry = Date.now();
     try {
       const r = await fetch("/prefs/newest-first", { credentials: "same-origin" });
       if (r.ok) { value = !!(await r.json()).value; render(); }
     } catch (e) { /* not logged in yet */ }
+    loading = false;
   }
 
-  new MutationObserver(() => { if (value === null) return; render(); })
-    .observe(document.documentElement, { childList: true, subtree: true });
+  // The value is asked again as soon as the top bar is on screen while it is still unknown: Chainlit can show
+  // its login form at "/" itself (session over), and after signing in there the address does not change, so
+  // the first answer (401) would otherwise leave the box out for good.
+  new MutationObserver(() => {
+    if (value === null) { if (rightGroup()) load(); return; }
+    render();
+  }).observe(document.documentElement, { childList: true, subtree: true });
   // load once now and again after a login (the page changes from /login to / without a reload)
   load();
   let lastPath = location.pathname;
   setInterval(() => {
     if (location.pathname !== lastPath) { lastPath = location.pathname; if (value === null) load(); }
+    else if (value === null && rightGroup()) load();   // signed in at the same address (see above)
   }, 1000);
 })();
 
-// 6. Banner in the middle of the top bar: a fixed usage hint (no mode information), and the border of the
-//    message box, which moves to the next of three colours with every message sent (round robin), so each new
-//    input is visibly a new turn. Python sends {type: "mode", mode} (app.show_mode) for each message (the mode
-//    name is ignored); mode null = a new or reopened chat: grey border until its first message.
-//    Styled for the light theme (public/theme.css): pale grey pill with a hairline border, label font, no
-//    shadow; the message box border itself is drawn by theme.css from --mode-color.
+// 6. Border of the message box: it moves to the next of three colours with every message sent (round robin),
+//    so each new input is visibly a new turn. Python sends {type: "mode", mode} (app.show_mode) for each message
+//    (the mode name is ignored); mode null = a new or reopened chat: grey border until its first message. The
+//    border itself is drawn by public/theme.css from --mode-color. (The usage-hint pill that used to sit in the
+//    top bar is gone: the Home screen shows the ways to ask.)
 (function () {
-  const ID = "mode-banner";
-  const HINT = "Ask anything · or start with search= or title=";
   const COLORS = ["#2563eb", "#ca8a04", "#7c3aed"];   // blue, amber, purple
   let turn = -1;   // index into COLORS of the current message; -1 = no message yet in this chat
 
   function render() {
-    if (location.pathname.startsWith("/login") || location.pathname.startsWith("/signup")) return;
-    const header = document.getElementById("header");
-    if (!header) return;   // top bar not rendered yet: the observer calls again
-    let banner = document.getElementById(ID);
-    if (!banner) {
-      banner = document.createElement("div");
-      banner.id = ID;
-      banner.style.cssText =
-        "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:5px 16px;" +
-        "border-radius:9999px;font:500 14px var(--f-label, system-ui, sans-serif);white-space:nowrap;" +
-        "pointer-events:none;max-width:60vw;overflow:hidden;text-overflow:ellipsis;" +
-        "background:var(--c-ash, #f2f2f2);color:var(--c-slate, #717886);border:1px solid var(--c-line, #e0e3e8);";
-      if (getComputedStyle(header).position === "static") header.style.position = "relative";
-      header.appendChild(banner);
-    }
-    banner.title = HINT;   // full text on hover when the top bar is too narrow
-    if (banner.textContent !== HINT) banner.textContent = HINT;
-    fit(header, banner);
-    // Message box border (public/theme.css): the turn's colour; unset = theme.css's grey (black on focus)
+    // unset = theme.css's grey (black on focus)
     const color = turn < 0 ? "" : COLORS[turn];
     if (document.documentElement.style.getPropertyValue("--mode-color") !== color) {
       if (color) document.documentElement.style.setProperty("--mode-color", color);
@@ -364,41 +355,12 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     }
   }
 
-  // The banner is centred on the chat column, on the same axis as the Home screen and the message box (the
-  // top bar is a little wider than that column). It never covers the buttons on either side (Newest first, Settings,
-  // Reading list, ...): it is cut with "..." when the space around the middle is short, and hidden when even a
-  // short pill would not fit.
-  function fit(header, banner) {
-    const box = header.getBoundingClientRect();
-    const column = document.getElementById("message-composer");
-    const c = column && column.getBoundingClientRect();
-    const mid = c && c.width ? c.left + c.width / 2 : box.left + box.width / 2;
-    let room = Math.min(mid - box.left, box.right - mid);   // free space from the axis to the nearest group
-    for (const el of header.children) {
-      if (el === banner) continue;
-      const r = el.getBoundingClientRect();
-      if (!r.width) continue;
-      if (r.right <= mid) room = Math.min(room, mid - r.right);
-      else if (r.left >= mid) room = Math.min(room, r.left - mid);
-      else room = 0;
-    }
-    const max = Math.floor(2 * (room - 12));
-    const display = max < 160 ? "none" : "";
-    if (banner.style.display !== display) banner.style.display = display;
-    if (display) return;
-    const left = Math.round(mid - box.left) + "px";
-    if (banner.style.left !== left) banner.style.left = left;
-    if (banner.style.maxWidth !== max + "px") banner.style.maxWidth = max + "px";
-  }
-  window.addEventListener("resize", render);
-
   window.addEventListener("message", (event) => {
     const data = event.data;
     if (!data || data.type !== "mode") return;
     turn = data.mode ? (turn + 1) % COLORS.length : -1;   // a message: next colour; new/reopened chat: reset
     render();
   });
-  new MutationObserver(render).observe(document.documentElement, { childList: true, subtree: true });
   render();
 })();
 
@@ -693,8 +655,11 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   let stopArt = null;   // stops the animation (set once it runs)
   let scriptRequested = false;
 
+  // The login page: /login, or Chainlit's login form shown at another address (session over) - a password
+  // field with no top bar
   function onLogin() {
-    return location.pathname.startsWith("/login");
+    return location.pathname.startsWith("/login") ||
+           (!!document.querySelector('form input[type="password"]') && !document.getElementById("header"));
   }
 
   function brand() {
