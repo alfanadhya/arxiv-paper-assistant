@@ -1,28 +1,13 @@
 {
   "runner_version": "run_ground_truth v1",
-  "created": "2026-11-17T16:41:24",
-  "git_commit": "29a9193eae29394609820a4feb36e5c6d6ea05d0",
+  "created": "2026-11-17T21:13:40",
+  "git_commit": "752e23c0b69bd0f7ac04aa58ab7fbef997e4a88a",
   "git_branch": "main",
   "git_dirty_files": [
-    "M eval/run_eval.py",
-    " D eval/runs/20261112-1926_dev_keyed/audit.csv",
-    " D eval/runs/20261112-1926_dev_keyed/per_case.jsonl",
-    " D eval/runs/20261112-1926_dev_keyed/report.json",
-    " D eval/runs/20261112-1926_dev_keyed/run_log.txt",
-    " D eval/runs/20261112-1926_dev_keyed/system_version.json",
-    " D eval/runs/20261112-1926_dev_keyed/traces.jsonl",
-    " M retriever_hybrid_rrf.py",
-    " M threeofus_main.py",
-    "?? eval/data/ground_truth.jsonl",
-    "?? eval/report_ground_truth.py",
-    "?? eval/run_ground_truth.py",
-    "?? eval/runs/20261117_ground_truth_question/",
-    "?? eval/runs/20261117_ground_truth_question_v2/",
-    "?? eval/runs/20261117_ground_truth_title_key/",
-    "?? eval/runs/20261117_ground_truth_title_merged/"
+    "?? eval/runs/20261117_ground_truth_question_v3/"
   ],
   "code_hashes": {
-    "threeofus_main.py": "80c0519331f177ae",
+    "threeofus_main.py": "5da3a6dfa0aa9439",
     "retriever_hybrid_rrf.py": "285c74f240f272d7",
     "prompt_cleaning.py": "6cffd7606594c724",
     "chatbot_diagnostics.py": "e3739ad6c881a1ec"
@@ -93,7 +78,7 @@
     "REWRITE_SYSTEM_PROMPT": "bf05b198c5efc3b6",
     "REWRITE_PROMPT": "7f4c0475a3fb1ea5",
     "RANK_POOL_PROMPT": "b2265d278f4d8af6",
-    "AGENT_SYSTEM_PROMPT": "69129df1aac79d66"
+    "AGENT_SYSTEM_PROMPT": "c086a9e5fb53de2d"
   },
   "machine": {
     "platform": "Windows-11-10.0.26300-SP0",

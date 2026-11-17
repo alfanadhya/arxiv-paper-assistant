@@ -1,0 +1,30 @@
+Run 20261117_ground_truth_question_v3: 22 papers, message = the paper's general_question, no mode key
+Loading the app, models and Qdrant connection...
+Loading the embedding models and connecting to Qdrant (http://localhost:6333, 'sebun_bge768_hybrid_full')...
+Loading the reranker BAAI/bge-reranker-base on cuda...
+0 papers already done, 22 to run. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261117_ground_truth_question_v3\records.jsonl
+
+[1/22] 1609.02907    30.3s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[2/22] 1606.05250    21.4s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[3/22] 1706.03762    14.5s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[4/22] 1707.06347    13.9s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[5/22] 1810.04805    20.9s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[6/22] 1802.05365    13.0s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[7/22] 1908.10084    19.7s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[8/22] 1907.11692    23.7s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[9/22] 2005.11401    38.8s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[10/22] 2004.04906    23.1s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[11/22] 2106.09685    25.5s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[12/22] 2101.08231    30.4s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[13/22] 2201.11903    21.4s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[14/22] 2210.03629    26.2s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[15/22] 2309.15217    12.5s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[16/22] 2305.18290    25.6s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected None
+[17/22] 2405.07437    21.5s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[18/22] 2402.03216    17.4s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[19/22] 2504.20119    28.7s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[20/22] 2506.05176    24.9s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[21/22] 2601.08670    13.1s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[22/22] 2602.20091    14.8s  agent, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+
+Done in 481s. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261117_ground_truth_question_v3\records.jsonl
