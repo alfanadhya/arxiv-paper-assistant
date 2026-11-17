@@ -242,7 +242,8 @@ class Retriever(Protocol):
     index_mode: str
     collection: str
 
-    def retrieve(self, query: str, k_retrieve: int, metadata: MetadataIntent) -> list[Evidence]: ...
+    def retrieve(self, query: str, k_retrieve: int, metadata: MetadataIntent,
+                 sparse_query: str | None = None) -> list[Evidence]: ...
 
     def close(self) -> None: ...
 
@@ -359,12 +360,15 @@ class QdrantHybridRetriever:
             raise SystemExit("Stored payload contains no readable text content.")
         return prefix
 
-    def retrieve(self, query: str, k_retrieve: int, metadata: MetadataIntent) -> list[Evidence]:
+    def retrieve(self, query: str, k_retrieve: int, metadata: MetadataIntent,
+                 sparse_query: str | None = None) -> list[Evidence]:
+        """`query` is embedded for the dense search. The sparse (BM25) search uses `sparse_query` when given
+        (e.g. the user's own words, while `query` is a model-written search query), else `query` too."""
         from qdrant_client import models
 
         # 1. Generate Query Embeddings and Apply Threshold Pruning
         dense_vec = self.dense_encoder.encode([QUERY_INSTRUCTION + query], normalize_embeddings=True)[0].tolist()
-        sparse_vec = self.sparse_encoder.embed_query(query)
+        sparse_vec = self.sparse_encoder.embed_query(sparse_query or query)
 
         query_filter = metadata.to_filter(self.prefix)
         prefetch_limit = max(50, k_retrieve * 2)

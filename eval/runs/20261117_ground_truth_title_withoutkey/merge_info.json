@@ -1,0 +1,12 @@
+{
+  "full_run": "20261117_ground_truth_title",
+  "rerun": "20261117_ground_truth_title_rerun_failed_split_query_k30",
+  "replaced_target_ids": [
+    "1606.05250",
+    "1707.06347",
+    "2005.11401",
+    "2106.09685",
+    "2305.18290",
+    "2405.07437"
+  ]
+}

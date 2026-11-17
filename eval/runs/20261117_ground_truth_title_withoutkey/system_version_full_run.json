@@ -1,26 +1,20 @@
 {
-  "runner_version": "run_eval v1",
-  "created": "2026-11-12T19:26:58",
-  "git_commit": "799fb977bee093f8260e75806bcf40c496375ce1",
+  "runner_version": "run_ground_truth v1",
+  "created": "2026-11-17T13:20:52",
+  "git_commit": "29a9193eae29394609820a4feb36e5c6d6ea05d0",
   "git_branch": "main",
   "git_dirty_files": [
-    "M chatbot_diagnostics.py",
-    " M eval/run_eval.py",
-    " M eval/score.py",
-    " M public/elements/Diagnostics.jsx",
-    " M threeofus_main.py",
-    "?? eval/runs/20261112-1504_dev_keyed/",
-    "?? eval/runs/20261112-1544_dev_keyed/",
-    "?? eval/runs/20261112-1856_dev_keyed/",
-    "?? eval/runs/20261112-1926_dev_keyed/"
+    "?? eval/data/ground_truth.jsonl",
+    "?? eval/run_ground_truth.py",
+    "?? eval/runs/20261117_ground_truth_title/"
   ],
   "code_hashes": {
-    "threeofus_main.py": "a25f5de457cb2bc4",
-    "retriever_hybrid_rrf.py": "b833b8106ce1780a",
-    "prompt_cleaning.py": "37d38d74641cfecb",
-    "chatbot_diagnostics.py": "785dab342d7235fb"
+    "threeofus_main.py": "1112928ae79fac43",
+    "retriever_hybrid_rrf.py": "7460b2df259b9d35",
+    "prompt_cleaning.py": "6cffd7606594c724",
+    "chatbot_diagnostics.py": "e3739ad6c881a1ec"
   },
-  "input_variant": "keyed",
+  "input_variant": "ground_truth_title",
   "mode_key": "none",
   "agent_enabled": true,
   "agent": {
@@ -28,9 +22,9 @@
     "AGENT_SEED": 42,
     "AGENT_MAX_STEPS": 4,
     "AGENT_MAX_TOKENS": 4096,
-    "AGENT_CANDIDATES": 8,
+    "AGENT_CANDIDATES": 5,
     "AGENT_RERANK_POOL": 40,
-    "AGENT_RERANK_CUTOFF": 0.7
+    "RERANK_CUTOFF": 0.7
   },
   "qdrant": {
     "url": "http://localhost:6333",
@@ -69,7 +63,7 @@
     ]
   },
   "k": {
-    "k_retrieve_per_search": 25,
+    "k_retrieve_per_search": 26,
     "searches": [
       "topic (surveys split from the same hits)"
     ],
@@ -86,12 +80,14 @@
     "REWRITE_SYSTEM_PROMPT": "bf05b198c5efc3b6",
     "REWRITE_PROMPT": "7f4c0475a3fb1ea5",
     "RANK_POOL_PROMPT": "b2265d278f4d8af6",
-    "AGENT_SYSTEM_PROMPT": "bad2ddfa48f49e5a"
+    "AGENT_SYSTEM_PROMPT": "d74e622d0841d49a"
   },
   "machine": {
     "platform": "Windows-11-10.0.26300-SP0",
     "python": "3.13.15",
     "torch": "2.11.0+cu128",
     "cuda": "NVIDIA GeForce RTX 5060 Ti"
-  }
+  },
+  "rerank_cutoff": 0.7,
+  "ground_truth_file": "eval\\data\\ground_truth.jsonl"
 }

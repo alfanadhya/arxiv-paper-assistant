@@ -335,9 +335,9 @@ def main():
     qdrant_log: list = []
     original_retrieve = retriever.retrieve
 
-    def logged_retrieve(query, k, metadata):   # keep every raw Qdrant list for R2 and the stage trace
-        hits = original_retrieve(query, k, metadata)
-        qdrant_log.append({"query": query, "k": k, "filters": repr(metadata),
+    def logged_retrieve(query, k, metadata, sparse_query=None):   # keep every raw Qdrant list for R2 and the stage trace
+        hits = original_retrieve(query, k, metadata, sparse_query=sparse_query)
+        qdrant_log.append({"query": query, "sparse_query": sparse_query, "k": k, "filters": repr(metadata),
                            "hits": [hit_record(h, i) for i, h in enumerate(hits, start=1)]})
         return hits
 

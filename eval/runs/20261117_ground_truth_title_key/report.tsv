@@ -1,0 +1,23 @@
+Paper	Title	Changed title	Qdrant rank	Reranked rank	Sent to LLM	Selected
+1609.02907	title=Semi-Supervised Classification with Graph Convolutional Networks	Semi-Supervised Classification with Graph Convolutional Networks	1	1	1	1
+1606.05250	title=SQuAD: 100,000+ Questions for Machine Comprehension of Text	SQuAD: 100, 000 Questions for Machine Comprehension of Text	1	1	1	1
+1706.03762	title=Attention Is All You Need	Attention Is All You Need	25	5	1	1
+1707.06347	title=Proximal Policy Optimization Algorithms	Proximal Policy Optimization Algorithms	11	13	1	1
+1810.04805	title=BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding	BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding	1	1	1	1
+1802.05365	title=Deep contextualized word representations	Deep contextualized word representations	1	1	1	1
+1908.10084	title=Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks	Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks	1	1	1	1
+1907.11692	title=RoBERTa: A Robustly Optimized BERT Pretraining Approach	RoBERTa: A Robustly Optimized BERT Pretraining Approach	1	1	1	1
+2005.11401	title=Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks	Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks	1	1	1	1
+2004.04906	title=Dense Passage Retrieval for Open-Domain Question Answering	Dense Passage Retrieval for Open-Domain Question Answering	1	1	1	1
+2106.09685	title=LoRA: Low-Rank Adaptation of Large Language Models	LoRA: Low-Rank Adaptation of Large Language Models	5	15	1	1
+2101.08231	title=Word Alignment by Fine-tuning Embeddings on Parallel Corpora	Word Alignment by Fine-tuning Embeddings on Parallel Corpora	1	1	1	1
+2201.11903	title=Chain-of-Thought Prompting Elicits Reasoning in Large Language Models	Chain-of-Thought Prompting Elicits Reasoning in Large Language Models	1	3	1	1
+2210.03629	title=ReAct: Synergizing Reasoning and Acting in Language Models	ReAct: Synergizing Reasoning and Acting in Language Models	1	1	1	1
+2309.15217	title=RAGAS: Automated Evaluation of Retrieval Augmented Generation	RAGAS: Automated Evaluation of Retrieval Augmented Generation	1	1	1	1
+2305.18290	title=Direct Preference Optimization: Your Language Model is Secretly a Reward Model	Direct Preference Optimization: Your Language Model is Secretly a Reward Model	3	1	1	1
+2405.07437	title=Evaluation of Retrieval-Augmented Generation: A Survey	Evaluation of Retrieval-Augmented Generation: A Survey	4	1	1	1
+2402.03216	title=M3-Embedding: Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation	M3-Embedding: Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation	1	1	1	1
+2504.20119	title=Can LLMs Be Trusted for Evaluating RAG Systems? A Survey of Methods and Datasets	Can LLMs Be Trusted for Evaluating RAG Systems? A Survey of Methods and Datasets	1	1	1	1
+2506.05176	title=Qwen3 Embedding: Advancing Text Embedding and Reranking Through Foundation Models	Qwen3 Embedding: Advancing Text Embedding and Reranking Through Foundation Models	1	1	1	1
+2601.08670	title=Parallel Context-of-Experts Decoding for Retrieval Augmented Generation	Parallel Context-of-Experts Decoding for Retrieval Augmented Generation	1	1	1	1
+2602.20091	title=How Retrieved Context Shapes Internal Representations in RAG	How Retrieved Context Shapes Internal Representations in RAG	1	1	1	1
