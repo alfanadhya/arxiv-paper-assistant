@@ -1,0 +1,228 @@
+/* Light "Base" look (DESIGN.md): white canvas, black text, slate prose, one blue (#0000ff) for primary actions,
+   8px radius, hairline borders, no shadows. Fonts as on langchain.com: Manrope for headings; Inter and
+   Space Grotesk stand in for the paid TWK Lausanne (body) and Aeonik (labels).
+   Colours for Chainlit's own components come from public/theme.json. Loaded via custom_css in config.toml. */
+
+:root {
+  --c-carbon: #000000;
+  --c-white: #ffffff;
+  --c-ash: #f2f2f2;
+  --c-slate: #717886;
+  --c-fog: #999999;
+  --c-mist: #b1b7c3;
+  --c-line: #e0e3e8;
+  --c-blue: #0000ff;
+  --c-green: #098551;
+  --f-head: "Manrope", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --f-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --f-label: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+body { font-family: var(--f-body); -webkit-font-smoothing: antialiased; background: var(--c-white); }
+
+/* No elevation by shadow: structure comes from borders and spacing */
+.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl { box-shadow: none !important; }
+
+/* Light only: no theme switch */
+#theme-toggle { display: none !important; }
+
+/* Headings inside messages (paper card titles are ### in app.paper_card) */
+.message-content h1, .message-content h2, .message-content h3, .message-content h4,
+[class*="prose"] h1, [class*="prose"] h2, [class*="prose"] h3 {
+  font-family: var(--f-head);
+  letter-spacing: -0.01em;
+  color: var(--c-carbon);
+}
+
+/* Links stay black (blue is kept for actions); underline shows they are links */
+#root a[href^="http"] { color: var(--c-carbon); text-decoration: underline; text-underline-offset: 3px;
+                        text-decoration-color: var(--c-mist); }
+#root a[href^="http"]:hover { text-decoration-color: var(--c-carbon); }
+
+/* The message box: white, hairline border, 8px corners */
+#message-composer {
+  background: var(--c-white) !important;
+  border: 1px solid var(--c-mist) !important;
+  border-radius: 8px !important;
+  transition: border-color 0.15s;
+}
+#message-composer:focus-within { border-color: var(--c-carbon) !important; }
+
+/* ------------------------------------------------------------------ Home (public/elements/Home.jsx) */
+.home {
+  width: 100%;
+  max-width: 760px;
+  margin: 8px auto 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: var(--c-carbon);
+}
+
+.home-logo { width: 64px; height: 64px; margin-bottom: 24px; }
+.home-logo-spin { animation: home-spin 8s linear infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes home-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .home-logo-spin { animation: none; } }
+
+.home-label {
+  font-family: var(--f-label);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.073em;
+  text-transform: uppercase;
+  color: var(--c-slate);
+  margin-bottom: 16px;
+}
+.home-label-left { align-self: stretch; text-align: left; margin: 40px 0 12px; }
+
+.home-title {
+  font-family: var(--f-head);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  white-space: nowrap;   /* one line on desktop; wraps on phones (below) */
+  margin: 0 0 12px;
+  color: var(--c-carbon);
+}
+
+.home-lead {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--c-slate);
+  max-width: 600px;   /* two lines at most on desktop */
+  margin: 0;
+}
+
+.home-modes { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.home-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  text-align: left;
+  background: var(--c-white);
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--c-carbon);
+  transition: border-color 0.15s, background 0.15s;
+}
+.home-mode:hover { border-color: var(--c-mist); }
+.home-mode.is-open { background: var(--c-ash); border-color: var(--c-carbon); }
+.home-mode:focus-visible { outline: 2px solid var(--c-blue); outline-offset: 2px; }
+.home-mode-icon { width: 20px; height: 20px; }
+.home-mode-label { font-family: var(--f-head); font-size: 16px; font-weight: 600; }
+.home-mode-desc { font-size: 14px; line-height: 1.43; color: var(--c-slate); }
+
+.home-examples {
+  width: 100%;
+  margin-top: 12px;
+  text-align: left;
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+  overflow: hidden;
+  animation: home-in 0.18s ease-out;
+}
+@keyframes home-in { from { opacity: 0; transform: translateY(-4px); } }
+.home-examples-head {
+  padding: 10px 16px;
+  font-family: var(--f-label);
+  font-size: 12px;
+  letter-spacing: 0.073em;
+  text-transform: uppercase;
+  color: var(--c-slate);
+  border-bottom: 1px solid var(--c-line);
+}
+.home-examples ul { list-style: none; margin: 0; padding: 0; }
+.home-examples li + li { border-top: 1px solid var(--c-line); }
+.home-examples li button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: none;
+  border: 0;
+  font-size: 14px;
+  color: var(--c-carbon);
+  text-align: left;
+  cursor: pointer;
+}
+.home-examples li button:hover { background: var(--c-ash); }
+.home-examples li button:focus-visible { outline: 2px solid var(--c-blue); outline-offset: -2px; }
+.home-example-arrow { width: 16px; height: 16px; color: var(--c-slate); flex: none; }
+
+.home-tips {
+  width: 100%;
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.home-tip { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; line-height: 1.43;
+            color: var(--c-slate); }
+.home-tip b { color: var(--c-carbon); font-weight: 500; }
+.home-tip-icon { width: 16px; height: 16px; margin-top: 2px; color: var(--c-carbon); flex: none; }
+.home code, .home-tip code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--c-ash);
+  color: var(--c-carbon);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+@media (max-width: 640px) {
+  .home-title { font-size: 24px; white-space: normal; }
+  .home-lead { font-size: 15px; }
+  .home-modes { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------------------------ left chat list */
+/* The sidebar cannot be resized: hide the rail that shows a resize line on hover */
+[data-sidebar="rail"] { display: none !important; }
+
+/* ------------------------------------------------------------------ loading lines */
+/* Progress messages ("Thinking...", "Searching Qdrant...") get data-loading from public/custom.js:
+   three typing dots on the left and a shimmer over the text (prompt-kit Loader: typing + text-shimmer). */
+.message-content[data-loading] { flex-direction: row; align-items: center; gap: 12px; }
+.message-content[data-loading]::before {
+  content: "";
+  flex: none;
+  width: 22px;
+  height: 12px;
+  background:
+    radial-gradient(circle closest-side, var(--c-slate) 92%, transparent) 0 50% / 6px 6px no-repeat,
+    radial-gradient(circle closest-side, var(--c-slate) 92%, transparent) 8px 50% / 6px 6px no-repeat,
+    radial-gradient(circle closest-side, var(--c-slate) 92%, transparent) 16px 50% / 6px 6px no-repeat;
+  animation: typing-dots 1s infinite linear;
+}
+@keyframes typing-dots {
+  0%, 100% { background-position: 0 50%, 8px 50%, 16px 50%; }
+  25% { background-position: 0 0, 8px 50%, 16px 50%; }
+  50% { background-position: 0 50%, 8px 0, 16px 50%; }
+  75% { background-position: 0 50%, 8px 50%, 16px 0; }
+}
+.message-content[data-loading] p {
+  margin: 0;
+  background: linear-gradient(to right, var(--c-slate) 40%, var(--c-carbon) 60%, var(--c-slate) 80%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 500;
+  animation: text-shimmer 4s infinite linear;
+}
+.message-content[data-loading] p * { color: transparent !important; text-decoration: none !important; }
+@keyframes text-shimmer { 0% { background-position: 200% 50%; } 100% { background-position: -200% 50%; } }
+@media (prefers-reduced-motion: reduce) {
+  .message-content[data-loading]::before, .message-content[data-loading] p { animation: none; }
+}
+
+/* Greeting and start-up message: no avatar (custom.js sets data-no-avatar); hidden, so the text stays aligned */
+.ai-message[data-no-avatar] > :first-child { visibility: hidden; }
