@@ -246,21 +246,16 @@
   }, 1000);
 })();
 
-// 6. Banner in the middle of the top bar: what the current message runs (search= / title= / the agent).
-//    Python sends {type: "mode", mode} (app.show_mode) for each message; null = neutral (new or reopened chat).
+// 6. Banner in the middle of the top bar: a fixed usage hint (no mode information), and the border of the
+//    message box, which moves to the next of three colours with every message sent (round robin), so each new
+//    input is visibly a new turn. Python sends {type: "mode", mode} (app.show_mode) for each message (the mode
+//    name is ignored); mode null = a new or reopened chat: grey border until its first message.
 (function () {
   const ID = "mode-banner";
-  // Two example messages per mode (typed without the key while the mode is on)
-  const MODES = {
-    search:  { label: "Search mode",  color: "#2563eb",
-               examples: ["transformers", "generative AI for construction industry year=2020-"] },
-    title:   { label: "Title mode",   color: "#ca8a04",
-               examples: ["Attention is all you need", "Deep residual learning for image recognition"] },
-    // any message without search= / title=: answered by the agent (tool calling)
-    ask:     { label: "Research mode", color: "#7c3aed",
-               examples: ["how are GNNs used for drug discovery?", "main approaches to RAG evaluation?"] },
-  };
-  let mode = null;
+  const HINT = "Ask anything · or start with search= or title=";
+  const BANNER_COLOR = "#6b7280";
+  const COLORS = ["#2563eb", "#ca8a04", "#7c3aed"];   // blue, amber, purple
+  let turn = -1;   // index into COLORS of the current message; -1 = no message yet in this chat
 
   function render() {
     if (location.pathname.startsWith("/login") || location.pathname.startsWith("/signup")) return;
@@ -278,20 +273,16 @@
       if (getComputedStyle(header).position === "static") header.style.position = "relative";
       header.appendChild(banner);
     }
-    const m = MODES[mode];
-    const text = m ? `${m.label} · e.g. "${m.examples[0]}" or "${m.examples[1]}"`
-                   : "Ask anything · or start with search= or title=";
-    banner.title = text;   // full text on hover when the top bar is too narrow
-    if (banner.textContent !== text) banner.textContent = text;
-    const color = m ? m.color : "#6b7280";
-    if (banner.dataset.color !== color) {
-      banner.dataset.color = color;
-      banner.style.background = color;
+    banner.title = HINT;   // full text on hover when the top bar is too narrow
+    if (banner.textContent !== HINT) banner.textContent = HINT;
+    if (banner.style.background !== BANNER_COLOR) banner.style.background = BANNER_COLOR;
+    const color = turn < 0 ? BANNER_COLOR : COLORS[turn];
+    if (document.documentElement.style.getPropertyValue("--mode-color") !== color) {
       document.documentElement.style.setProperty("--mode-color", color);   // message box border (below)
     }
   }
 
-  // The box where the user types gets a border in the mode's colour
+  // The box where the user types gets a border in the current turn's colour
   const style = document.createElement("style");
   style.textContent = "#message-composer { border: 2px solid var(--mode-color, transparent); " +
                       "transition: border-color 0.2s; }";
@@ -300,7 +291,7 @@
   window.addEventListener("message", (event) => {
     const data = event.data;
     if (!data || data.type !== "mode") return;
-    mode = data.mode || null;
+    turn = data.mode ? (turn + 1) % COLORS.length : -1;   // a message: next colour; new/reopened chat: reset
     render();
   });
   new MutationObserver(render).observe(document.documentElement, { childList: true, subtree: true });
@@ -518,4 +509,17 @@
   }
   new MutationObserver(addSignupLink).observe(document.documentElement, { childList: true, subtree: true });
   addSignupLink();
+})();
+
+// 9. Chat list as one plain list: Chainlit groups the chats under date headings ("Today", "Yesterday",
+//    "Previous 7 days", ...). The headings are hidden and the groups packed together, so the left pane shows
+//    a single list, newest first (Chainlit already orders the groups and the chats in them by date).
+(function () {
+  const style = document.createElement("style");
+  style.id = "flat-chat-list";
+  style.textContent =
+    "#thread-history [data-sidebar='group-label'] { display: none !important; } " +
+    "#thread-history [data-sidebar='group'] + [data-sidebar='group'] { padding-top: 0 !important; } " +
+    "#thread-history [data-sidebar='group']:not(:last-child) { padding-bottom: 0 !important; }";
+  (document.head || document.documentElement).appendChild(style);
 })();

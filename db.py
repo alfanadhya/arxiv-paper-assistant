@@ -267,6 +267,13 @@ def make_data_layer():
         deleted_ids: set[str] = set()
         owners: dict[str, str] = {}   # thread id -> owner username (a chat's owner never changes)
 
+        # Chainlit 2.12 stamps new chats with LOCAL time marked as UTC ('Z'); on a machine ahead of UTC a chat
+        # started late in the day is then dated tomorrow and the left pane files it under "Previous 7 days".
+        # Real UTC time instead, as the browser expects.
+        async def get_current_timestamp(self) -> str:
+            from datetime import datetime, timezone
+            return datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
+
         # Second line of defence (Chainlit already checks the owner on resume/open/rename/delete):
         # True if the chat belongs to someone other than the logged-in user of the current session,
         # so one user's session can never write into another user's chat.

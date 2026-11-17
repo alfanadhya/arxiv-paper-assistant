@@ -76,8 +76,9 @@ async def save_session() -> None:
 
 
 # ---------------------------------------------------------------- mode (banner) and last results
-# Show in the top-bar banner what the current message runs: "search", "title", "ask" (the agent) or None
-# (neutral). Nothing is remembered: every message is handled on its own (public/custom.js, section 6).
+# Tell the page a message started ("search", "title", "ask") or a chat started/reopened (None). The page no
+# longer shows the mode: it moves the message box border to its next colour per message (public/custom.js,
+# section 6) and resets it to grey for None.
 async def show_mode(mode: str | None) -> None:
     await cl.send_window_message({"type": "mode", "mode": mode})
 
