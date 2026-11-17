@@ -10,7 +10,7 @@ from prompt_cleaning import collapse_repeats, remove_symbols, parse_message, len
 HERE = Path(__file__).resolve().parent
 CASES_FILE = HERE / "cases.csv"
 RESULTS_FILE = HERE / "results.csv"
-K = 20   # papers fetched from Qdrant per search (K_RETRIEVE in the app)
+K = 30   # papers fetched from Qdrant per search (fake mode; the lab run uses the app's K_RETRIEVE)
 
 MODE = "lab"  # "lab" or "fake"
 
@@ -75,7 +75,7 @@ def input_error(query, parsed):
 # Empty result: every field the pipelines return, so run_all can always read them
 def empty_result():
     result = {"symbol_cleaned": "", "parsed_text": "", "author_stripped": "", "cleaned_query": "",
-              "survey_query": "", "filters": "none", "errors": "", "dense_ranks": {}, "sparse_ranks": {},
+              "sparse_query": "", "filters": "none", "errors": "", "dense_ranks": {}, "sparse_ranks": {},
               "rrf_scores": {}, "rerank_scores": {}, "surveys_shown": [], "picked_by": ""}
     for stage in STAGES:
         result[stage] = []
@@ -91,7 +91,7 @@ def pipeline_fake(query):
     if r["errors"]:                        # rejected: nothing is searched
         return r
     r["cleaned_query"] = parsed.text.lower()                     # pura-pura LLM merapikan query
-    r["survey_query"] = "survey of " + r["cleaned_query"]
+    r["sparse_query"] = parsed.text                              # BM25 half: the user's own words
     r["raw"] = search_fake(query)
     r["cleaned"] = search_fake(r["cleaned_query"])
     r["dense_ranks"] = {pid: i for i, pid in enumerate(r["cleaned"], start=1)}   # pura-pura
@@ -118,8 +118,10 @@ def pipeline_lab(retriever, query):
     if r["errors"]:
         return r
 
+    k = app.K_RETRIEVE   # candidates per search, as in the app
+
     # Baseline: the query exactly as typed, no cleaning, no filters
-    r["raw"] = to_ids(retriever.retrieve(query, K, MetadataIntent()))
+    r["raw"] = to_ids(retriever.retrieve(query, k, MetadataIntent()))
 
     # A4: author names removed from the topic (recorded only; analyze_query does it again inside)
     r["author_stripped"] = parsed.text
@@ -129,7 +131,9 @@ def pipeline_lab(retriever, query):
     # A5: LLM spell check / topic extraction
     check, rest = app.analyze_query(parsed.text, meta=parsed)
     a = check.analysis
+    a.sparse_query = app.strip_filler(rest) or None   # as run_query: BM25 on the user's words, dense on the topic
     r["cleaned_query"] = a.corrected_query
+    r["sparse_query"] = a.sparse_query or a.corrected_query
     if check.errors:                       # the app stops here and searches nothing
         r["errors"] = " ".join(check.errors)
         return r
@@ -138,11 +142,10 @@ def pipeline_lab(retriever, query):
     filters = app.build_filters(a)
     r["filters"] = app.describe_filters(a)
 
-    # A6 + B3: two Qdrant searches (topic and "survey of ..."), each = dense + sparse fused by RRF
+    # A6 + B3: ONE Qdrant search (as search_papers in the app): dense on the model's topic, sparse (BM25) on the
+    # user's own words, fused by RRF. Surveys are split from the same hits, not searched separately.
     survey_focus = bool(app.SURVEY_WORD_RE.search(rest))
-    r["survey_query"] = f"survey of {app.topic_without_survey(a.corrected_query)}"
-    main_hits = retriever.retrieve(a.corrected_query, K, filters)
-    survey_hits = retriever.retrieve(r["survey_query"], K, filters)
+    main_hits = retriever.retrieve(a.corrected_query, k, filters, sparse_query=a.sparse_query)
     r["cleaned"] = to_ids(main_hits)
     r["dense_ranks"] = {pid: h.dense_rank for pid, h in zip(r["cleaned"], main_hits)}
     r["sparse_ranks"] = {pid: h.sparse_rank for pid, h in zip(r["cleaned"], main_hits)}
@@ -150,11 +153,7 @@ def pipeline_lab(retriever, query):
 
     # Pool split: research papers vs surveys (title contains "survey")
     paper_pool = [] if survey_focus else [h for h in main_hits if not app.is_survey(h)]
-    survey_pool, seen = [], set()
-    for h in main_hits + survey_hits:
-        if app.is_survey(h) and h.point_id not in seen:
-            seen.add(h.point_id)
-            survey_pool.append(h)
+    survey_pool = [h for h in main_hits if app.is_survey(h)]
     r["paper_pool"] = to_ids(paper_pool)
 
     # B4: cross-encoder rerank, each pool separately
@@ -238,7 +237,7 @@ def run_all(cases, retriever=None):
         row = {"split": c["split"], "case": i, "goal": c["goal"], "query": c["query"], "relevant_ids": ";".join(rel),
                "symbol_cleaned": result["symbol_cleaned"], "parsed_text": result["parsed_text"],
                "author_stripped": result["author_stripped"], "cleaned_query": result["cleaned_query"],
-               "survey_query": result["survey_query"], "filters": result["filters"], "errors": result["errors"]}
+               "sparse_query": result["sparse_query"], "filters": result["filters"], "errors": result["errors"]}
 
         # Paper lists at every step that changes them
         for stage in STAGES:
