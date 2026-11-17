@@ -433,12 +433,12 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   mark();
 })();
 
-// 7. Paper number chips: each card title starts with a chip ("Paper 2", "Survey S1"; app.paper_card, drawn by
+// 7. Paper number chips: each card title ends with a chip ("Paper 2", "Survey S1"; app.paper_card, drawn by
 //    public/theme.css, which also adds "Best match" / "Title match" to the best one instead of colouring the
 //    title). Here the chip gets a tooltip saying what the number is for.
 (function () {
   function hint() {
-    document.querySelectorAll(".message-content h3 > code:first-child:not([title])").forEach((el) => {
+    document.querySelectorAll(".message-content h3 > code:not([title])").forEach((el) => {
       const m = /^(?:Paper|Survey) (S?\d+)$/.exec(el.textContent.trim());
       if (!m) return;
       el.title = `Use “${m[1]}” to ask about this paper, e.g. “compare ${m[1]} and ` +

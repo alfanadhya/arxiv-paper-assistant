@@ -335,18 +335,20 @@ html[data-auth-page] img.logo { display: none !important; }
 }
 
 /* ------------------------------------------------------------------ paper number chip (app.paper_card) */
-/* "Paper 2" / "Survey S1" before each card title: the number to use in follow-ups (tooltip: custom.js 7) */
-.message-content h3 > code:first-child {
-  display: inline-block; vertical-align: 0.25em; margin-right: 8px; padding: 2px 10px !important;
+/* "Paper 2" / "Survey S1" after each card title (the title keeps the left edge): the number to use in
+   follow-ups (tooltip: custom.js 7). Chats saved before this change have the chip in front of the title. */
+.message-content h3 > code {
+  display: inline-block; vertical-align: 0.25em; margin-left: 10px; padding: 2px 10px !important;
   border-radius: 9999px; border: 1px solid var(--c-line); background: var(--c-ash) !important;
   font: 500 12px/18px var(--f-label) !important; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--c-slate); cursor: help; white-space: nowrap;
 }
+.message-content h3 > code:first-child { margin-left: 0; margin-right: 8px; }   /* older chats */
 /* The best match says so in words (no coloured title): "Best match" for a search, "Title match" for title= */
-.message-content h3:has(a[href$="#best"]) > code:first-child::after { content: " · Best match"; }
-.message-content h3:has(a[href$="#match"]) > code:first-child::after { content: " · Title match"; }
-.message-content h3:has(a[href$="#best"]) > code:first-child,
-.message-content h3:has(a[href$="#match"]) > code:first-child {
+.message-content h3:has(a[href$="#best"]) > code::after { content: " · Best match"; }
+.message-content h3:has(a[href$="#match"]) > code::after { content: " · Title match"; }
+.message-content h3:has(a[href$="#best"]) > code,
+.message-content h3:has(a[href$="#match"]) > code {
   background: #e9f6ef !important; border-color: #b7e0c8; color: var(--c-green);
 }
 
