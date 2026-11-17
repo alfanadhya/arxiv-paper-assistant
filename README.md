@@ -4,6 +4,8 @@ A web app for finding computer science papers on arXiv (2007 to Oct 2026), colle
 
 ## Using the app
 
+A new chat opens on the **Home** screen: the app's goal, the three ways to ask (Research, Search, Title) with example messages to click, and short tips.
+
 Type a question in your own words and the **research assistant** answers it: the model searches the papers itself and cites the ones it used, each shown as a card under the answer.
 
 Two **keywords** at the start of a message skip the assistant and run a fixed search instead. A keyword applies only to the message it is typed in:
@@ -93,6 +95,7 @@ Then open http://localhost:8000.
 - `-w` reloads the app whenever a `.py` file in the project folder is saved (all project modules are reloaded, not just `threeofus_main.py`), so no restart is needed after code changes.
 - `-h` stops Chainlit from opening a browser window itself.
 - `--host 0.0.0.0` makes the app reachable from other computers on the network at `http://<this-PC's-IP>:8000`.
+- **Windows with Python 3.14:** start with `.venv\Scripts\python.exe run_local.py` instead (same options). `chainlit run` there leaves a blank white page, see `run_local.py`.
 
 On Windows, other computers can only connect once the firewall allows the port. Run this once in an admin PowerShell:
 
@@ -110,10 +113,14 @@ New-NetFirewallRule -DisplayName "Chainlit 8000" -Direction Inbound -Protocol TC
 | `prompt_cleaning.py` | Input checks before any model call: keyword parser (`search=`, `title=`, `year=`, `author=`), length limits, symbol cleaning |
 | `retriever_hybrid_rrf.py` | Qdrant hybrid search (dense + BM25, RRF) and metadata filters |
 | `chatbot_diagnostics.py` | Diagnostics: tagged notes, rank trace per candidate, context usage per LLM call |
-| `app.py` | GUI helpers: paper cards, Select buttons, reading-list panel, per-message signal for the input border, chat resume |
+| `app.py` | GUI helpers: Home screen message, paper cards, Select buttons, reading-list panel, per-message signal for the input border, chat resume |
 | `db.py` | `history.db` (SQLite): chats, accounts, preferences; per-user access checks; account commands |
 | `export.py` | Builds the reading-list zip: BibTeX, PDFs from arXiv, selected chunks |
-| `public/custom.js` | Page tweaks: usage-hint banner, input border colour per message, plain chat list, Newest first checkbox, Settings button, sign-up link, reading-list tab, toasts |
+| `public/custom.js` | Page tweaks: light theme, usage-hint banner, input border colour per message, plain chat list, Newest first checkbox, Settings button, sign-up link, reading-list tab, loading animation, toasts |
+| `public/theme.json`, `public/theme.css` | Look of the app (light "Base" style: colours, fonts, Home screen, loading animation); bump `?v=` in config.toml after a change |
+| `public/elements/Home.jsx` | Home screen shown when a chat starts |
+| `public/avatars/` | Grey circle used as the assistant's avatar |
+| `run_local.py` | Starts the app on a Windows PC with Python 3.14 (see Run it) |
 | `public/elements/ReadingList.jsx` | Reading-list panel on the right |
 | `public/elements/Diagnostics.jsx` | Diagnostics panel under each answer |
 | `.chainlit/config.toml` | Chainlit settings (bump the `?v=` after `custom.js` when you change that file, so browsers reload it) |

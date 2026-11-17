@@ -3,7 +3,13 @@
 //  2. After deleting chats in the left pane: when no chat is left, open a fresh chat, so the screen does not
 //     keep showing messages of a chat that no longer exists (Chainlit only clears the screen when the deleted
 //     chat is the one it thinks is open; a chat missing from the list, e.g. after the DB was reset, stays).
-//  3. An always-visible "Reading list" tab on the right edge to reopen the reading-list panel.
+//  3. An always-visible "Reading list" tab on the right edge to reopen the reading-list panel (the in-chat
+//     "Reading list" buttons are hidden; the tab clicks them).
+
+// 0. Light theme only (DESIGN.md): Chainlit keeps the user's last choice in localStorage; reset it before the
+//    app reads it (this script runs before Chainlit's own, see the <script> order in the page).
+try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage blocked: default is light */ }
+
 (function () {
   // ------------------------------------------------------------------ 1. toast close button
   // The toast is hidden, not removed: removing the node would break the toast library's React state,
@@ -119,7 +125,7 @@
   // Show the right label for the panel's current state.
   function updateTabLabel() {
     const open = panelOpen();
-    const label = open ? "✕ Hide reading list" : "📚 Reading list";
+    const label = open ? "✕ Hide reading list" : "Reading list";
     if (tab.textContent !== label) {
       tab.textContent = label;
       tab.title = open ? "Hide the reading list" : "Show the reading list";
@@ -131,18 +137,25 @@
   const tab = document.createElement("button");
   tab.type = "button";
   tab.id = "reading-list-tab";
-  tab.textContent = "📚 Reading list";
+  tab.textContent = "Reading list";
   tab.title = "Show the reading list";
   tab.setAttribute("aria-label", "Show the reading list");
-  // Theme pink: Chainlit's --primary colour (HSL numbers), with the same pink as fallback.
+  // The primary action blue (#0000ff, Chainlit's --primary from public/theme.json), flat, label font.
   tab.style.cssText =
     "position:fixed;right:0;top:50%;transform:translateY(-50%);writing-mode:vertical-rl;" +
-    "z-index:2147483000;padding:12px 6px;border:none;border-radius:8px 0 0 8px;" +
-    "background:hsl(var(--primary, 340 92% 52%));color:hsl(var(--primary-foreground, 0 0% 100%));" +
-    "cursor:pointer;font:600 12px system-ui,sans-serif;opacity:.9;box-shadow:0 1px 6px rgba(0,0,0,.25);";
+    "z-index:2147483000;padding:14px 8px;border:none;border-radius:8px 0 0 8px;" +
+    "background:hsl(var(--primary, 240 100% 50%));color:hsl(var(--primary-foreground, 0 0% 100%));" +
+    "cursor:pointer;font:500 12px 'Space Grotesk','Inter',system-ui,sans-serif;letter-spacing:.073em;" +
+    "text-transform:uppercase;opacity:.9;";
   tab.addEventListener("mouseenter", () => (tab.style.opacity = "1"));
   tab.addEventListener("mouseleave", () => (tab.style.opacity = ".9"));
   tab.addEventListener("click", toggleReadingList);
+
+  // The tab is the only way in: the "Reading list" buttons under the greeting and the summaries are hidden.
+  // They stay in the page (display:none), because openReadingList() above clicks them.
+  const hideButtons = document.createElement("style");
+  hideButtons.textContent = 'button[id^="open-list-"] { display: none !important; }';
+  document.head.appendChild(hideButtons);
 
   // Add the tab once the page body exists, and put it back if the page ever removes it.
   function mountTab() {
@@ -250,10 +263,11 @@
 //    message box, which moves to the next of three colours with every message sent (round robin), so each new
 //    input is visibly a new turn. Python sends {type: "mode", mode} (app.show_mode) for each message (the mode
 //    name is ignored); mode null = a new or reopened chat: grey border until its first message.
+//    Styled for the light theme (public/theme.css): pale grey pill with a hairline border, label font, no
+//    shadow; the message box border itself is drawn by theme.css from --mode-color.
 (function () {
   const ID = "mode-banner";
   const HINT = "Ask anything · or start with search= or title=";
-  const BANNER_COLOR = "#6b7280";
   const COLORS = ["#2563eb", "#ca8a04", "#7c3aed"];   // blue, amber, purple
   let turn = -1;   // index into COLORS of the current message; -1 = no message yet in this chat
 
@@ -267,26 +281,21 @@
       banner.id = ID;
       banner.style.cssText =
         "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:5px 16px;" +
-        "border-radius:9999px;font-size:15px;font-weight:500;color:#fff;white-space:nowrap;" +
+        "border-radius:9999px;font:500 14px var(--f-label, system-ui, sans-serif);white-space:nowrap;" +
         "pointer-events:none;max-width:60vw;overflow:hidden;text-overflow:ellipsis;" +
-        "box-shadow:0 1px 3px rgba(0,0,0,0.2);";
+        "background:var(--c-ash, #f2f2f2);color:var(--c-slate, #717886);border:1px solid var(--c-line, #e0e3e8);";
       if (getComputedStyle(header).position === "static") header.style.position = "relative";
       header.appendChild(banner);
     }
     banner.title = HINT;   // full text on hover when the top bar is too narrow
     if (banner.textContent !== HINT) banner.textContent = HINT;
-    if (banner.style.background !== BANNER_COLOR) banner.style.background = BANNER_COLOR;
-    const color = turn < 0 ? BANNER_COLOR : COLORS[turn];
+    // Message box border (public/theme.css): the turn's colour; unset = theme.css's grey (black on focus)
+    const color = turn < 0 ? "" : COLORS[turn];
     if (document.documentElement.style.getPropertyValue("--mode-color") !== color) {
-      document.documentElement.style.setProperty("--mode-color", color);   // message box border (below)
+      if (color) document.documentElement.style.setProperty("--mode-color", color);
+      else document.documentElement.style.removeProperty("--mode-color");
     }
   }
-
-  // The box where the user types gets a border in the current turn's colour
-  const style = document.createElement("style");
-  style.textContent = "#message-composer { border: 2px solid var(--mode-color, transparent); " +
-                      "transition: border-color 0.2s; }";
-  document.head.appendChild(style);
 
   window.addEventListener("message", (event) => {
     const data = event.data;
@@ -298,10 +307,38 @@
   render();
 })();
 
+// 10. Loading lines: the assistant's progress messages ("Thinking...", "Searching Qdrant...", "Loading ...")
+//     end with "..." and are removed or replaced when the work is done. They get data-loading, which
+//     public/theme.css draws as typing dots plus a text shimmer.
+(function () {
+  function mark() {
+    document.querySelectorAll(".ai-message .message-content").forEach((el) => {
+      const text = (el.textContent || "").trim();
+      const loading = text.length > 0 && text.length < 300 && /(\.\.\.|…)$/.test(text) &&
+                      !el.querySelector(".home, table, h1, h2, h3");
+      if (loading && !el.hasAttribute("data-loading")) el.setAttribute("data-loading", "");
+      else if (!loading && el.hasAttribute("data-loading")) el.removeAttribute("data-loading");
+    });
+    // No avatar on the greeting (Home screen, or the old text greeting in older chats) and on the start-up
+    // message right after it ("Checking the models..." -> "Ready."). theme.css hides it, keeping the indent.
+    let afterGreeting = false;
+    document.querySelectorAll(".ai-message").forEach((msg) => {
+      const text = (msg.textContent || "").trim();
+      const greeting = !!msg.querySelector(".home") || text.startsWith("Hi! Ask in your own words");
+      const plain = greeting || (afterGreeting && /^(Checking the models|Loading|Ready\.|Setup failed)/.test(text));
+      if (plain !== msg.hasAttribute("data-no-avatar")) msg.toggleAttribute("data-no-avatar", plain);
+      afterGreeting = greeting;
+    });
+  }
+  new MutationObserver(mark).observe(document.documentElement,
+                                     { childList: true, subtree: true, characterData: true });
+  mark();
+})();
+
 // 7. Green "Best match:" heading in the result summary (app.summary_md writes it as **Best match:**; messages
 //    are Markdown without HTML, so the colour is set here), and a green title on the best match's card.
 (function () {
-  const GREEN = "#16a34a";
+  const GREEN = "#098551";   // DESIGN.md "Wireframe Green"
   // The best match's card title: its arXiv link ends in '#best' (app.paper_card)
   const style = document.createElement("style");
   style.textContent = `a[href$="#best"] { color: ${GREEN} !important; }`;
@@ -484,9 +521,16 @@
 })();
 
 // 4. Login page: a "Create an account" link to /signup, and a note after a successful sign-up.
+// The link is only shown when the server allows sign-up (ALLOW_SIGNUP, asked once via /signup-enabled).
 (function () {
+  let signupEnabled = null;   // null = not known yet
+  fetch("/signup-enabled")
+    .then((r) => r.json())
+    .then((j) => { signupEnabled = !!j.enabled; addSignupLink(); })
+    .catch(() => { signupEnabled = true; addSignupLink(); });
+
   function addSignupLink() {
-    if (!location.pathname.startsWith("/login")) return;
+    if (!location.pathname.startsWith("/login") || signupEnabled !== true) return;
     const pw = document.querySelector('form input[type="password"]');
     const form = pw && pw.closest("form");
     if (!form || form.querySelector("[data-signup-link]")) return;

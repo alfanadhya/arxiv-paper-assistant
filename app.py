@@ -286,10 +286,16 @@ async def close_sidebar() -> None:
 # ---------------------------------------------------------------- messages
 # Greeting shown when a chat starts; it carries a "Reading list" button, so the always-visible tab
 # always has a button to trigger, even before the first search.
+# The greeting is the Home screen (public/elements/Home.jsx); WELCOME is the plain-text version of it.
 async def send_welcome() -> None:
-    msg = cl.Message(WELCOME)
+    msg = cl.Message(content="", metadata={"kind": "welcome"})
     msg.actions = [open_list_button(msg.id)]
+    msg.elements = [home_element(msg.id)]
     await msg.send()
+
+
+def home_element(msg_id: str) -> cl.CustomElement:
+    return cl.CustomElement(name="Home", props={}, display="inline", id=f"home-{msg_id}")
 
 
 # Model summary message with a "Reading list" button.
@@ -412,6 +418,12 @@ async def resume(thread: dict) -> None:
         elif meta.get("kind") == "summary":
             await resend(open_list_button(step["id"]), step["id"])
             has_list_button = True
+        elif meta.get("kind") == "welcome":   # redraw the Home screen (same reason as diagnostics below)
+            home = home_element(step["id"])
+            home.for_id = step["id"]
+            if not isinstance(thread.get("elements"), list):
+                thread["elements"] = []
+            thread["elements"].append(home.to_dict())
         elif meta.get("kind") == "diagnostics" and meta.get("diagnostics"):
             # Redraw the saved diagnostics panel under its own message. Chainlit sends `thread` to the browser
             # AFTER this resume and the browser then replaces all its elements with thread["elements"] (empty:

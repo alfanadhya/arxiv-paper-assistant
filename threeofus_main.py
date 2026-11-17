@@ -39,6 +39,14 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 COLLECTION = "sebun_bge768_hybrid_full"   # must match the retriever's model
 NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))   # same for every chain, so Ollama never reloads the model
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")   # keep qwen loaded between questions ("-1" = forever)
+# Which LLM answers: "ollama" (local GPU, the default) or "groq" (hosted API, for servers without a GPU;
+# needs GROQ_API_KEY in .env). Every chain uses the same provider and model.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")   # list your models: Groq().models.list()
+LLM_MODEL = GROQ_MODEL if LLM_PROVIDER == "groq" else OLLAMA_MODEL
+LLM_LABEL = f"Groq ({GROQ_MODEL})" if LLM_PROVIDER == "groq" else f"Ollama ({OLLAMA_MODEL})"
+# Self sign-up on /signup. ALLOW_SIGNUP=0 closes it (e.g. one shared account made with  python db.py adduser NAME).
+ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "1").strip().lower() not in ("0", "false", "no", "off")
 SHOW_REASONING = os.getenv("SHOW_REASONING", "0") == "1"
 
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")   # cross-encoder reranker
@@ -574,12 +582,35 @@ def validate(text: str, a: QueryAnalysis, keep_wording: bool = False, trusted_me
 
 
 # --------------------------------------------------------------------------- models / chains
-# One Ollama chat model; same model, num_ctx and keep_alive everywhere so Ollama keeps it loaded.
-def ollama_llm(**options) -> ChatOllama:
+# One chat model for every chain. Options are written in Ollama's terms (reasoning=, format=, seed=,
+# num_predict=) and translated for Groq. Ollama: same model, num_ctx and keep_alive everywhere so it stays loaded.
+def chat_llm(**options):
+    if LLM_PROVIDER == "groq":
+        return groq_llm(**options)
     if not OLLAMA_MODEL:
         raise RuntimeError("Set OLLAMA_MODEL in the .env file (run 'ollama list' to see your models).")
     keep_alive = int(OLLAMA_KEEP_ALIVE) if OLLAMA_KEEP_ALIVE.lstrip("-").isdigit() else OLLAMA_KEEP_ALIVE
     return ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_URL, num_ctx=NUM_CTX, keep_alive=keep_alive, **options)
+
+
+# The same chat model on Groq's API. reasoning=True -> Qwen3 thinks, and the thinking comes back separately in
+# additional_kwargs["reasoning_content"] (as with Ollama); format= (a JSON schema) -> JSON mode.
+def groq_llm(reasoning: bool = False, format: dict | None = None, seed: int | None = None,
+             num_predict: int | None = None, temperature: float = 0.0):
+    from langchain_groq import ChatGroq
+    if not os.getenv("GROQ_API_KEY"):
+        raise RuntimeError("Set GROQ_API_KEY in the .env file (create a key at console.groq.com).")
+    model_kwargs = {}
+    if format is not None:
+        model_kwargs["response_format"] = {"type": "json_object"}
+    if seed is not None:
+        model_kwargs["seed"] = seed
+    # Always cap the output: Groq counts max_tokens against the per-minute token limit (free tier: 8,000/min),
+    # so an uncapped request is "too large" before it starts. 3,000 = the output budget fit_candidates reserves.
+    max_tokens = num_predict or (3000 if reasoning else 1024)
+    return ChatGroq(model=GROQ_MODEL, temperature=temperature, max_tokens=max_tokens, max_retries=3,
+                    reasoning_effort="default" if reasoning else "none",
+                    reasoning_format="parsed" if reasoning else None, model_kwargs=model_kwargs)
 
 
 # Spell-check chain (search and title): prompt with the parser's format instructions -> Ollama held to the
@@ -591,14 +622,14 @@ def spell_check_chain(system_prompt: str):
         ("system", system_prompt + "\n\n{format_instructions}"),
         ("human", "Full request: {request}\nTopic text: {query}"),
     ]).partial(format_instructions=parser.get_format_instructions())
-    llm = ollama_llm(temperature=0, reasoning=False, format=TopicCheck.model_json_schema())
+    llm = chat_llm(temperature=0, reasoning=False, format=TopicCheck.model_json_schema())
     return prompt | llm | parser
 
 
 # Build (once) the search spell-check chain and the ranking chain; both share one Ollama model and num_ctx.
 @functools.lru_cache(maxsize=1)
 def get_chains():
-    llm = ollama_llm(reasoning=True, temperature=0.6, seed=42)
+    llm = chat_llm(reasoning=True, temperature=0.6, seed=42)
     rank_chain = RANK_POOL_PROMPT | llm.with_structured_output(PoolRanking, include_raw=True)   # one pool per call
     return spell_check_chain(ANALYZE_SYSTEM_PROMPT), rank_chain
 
@@ -618,7 +649,7 @@ def get_title_chain():
 # Build (once) the follow-up rewrite chain; same model and num_ctx as the analyzer, no reasoning.
 @functools.lru_cache(maxsize=1)
 def get_rewrite_chain():
-    rewriter = ollama_llm(temperature=0, reasoning=False)
+    rewriter = chat_llm(temperature=0, reasoning=False)
     return REWRITE_PROMPT | rewriter.with_structured_output(RewriteResult)
 
 
@@ -1006,6 +1037,13 @@ def health_check(log: LogFn = lambda msg: None) -> list[str]:
     # LangChain chains: cheap objects, cached after the first call
     get_chains(), get_retry_analyze_chain(), get_rewrite_chain(), get_title_chain()
 
+    # Groq: nothing to load; just say whether the key is set (a real call happens with the first question)
+    if LLM_PROVIDER == "groq":
+        status.append(f"Groq `{GROQ_MODEL}`: " + ("API key set" if os.getenv("GROQ_API_KEY") else
+                                                  "GROQ_API_KEY missing in .env; searches will fall back to "
+                                                  "reranker order"))
+        return status
+
     # Ollama: is qwen loaded (with our context size)? If not, an empty request loads it.
     try:
         ps = httpx.get(f"{OLLAMA_URL}/api/ps", timeout=5).json().get("models", [])
@@ -1185,14 +1223,15 @@ def rank_pool(response: SearchResponse, pool: str, hits: list, topic: str, limit
         diag.append(f"[ranking] FALLBACK ({name}): {reason} -> top {name} in reranker order.")
         return PoolOutcome(picks=list(range(1, min(limit, len(hits)) + 1)), picked_by="fallback")
 
-    log(f"Asking Ollama ({OLLAMA_MODEL}) to pick the best {name}: top {len(hits)} of {found} found...")
+    log(f"Asking {LLM_LABEL} to pick the best {name}: top {len(hits)} of {found} found...")
     _, rank_chain = get_chains()
     try:
         output = rank_chain.invoke(rank_inputs(pool, hits, topic, limit, response.request, response.filters),
                                    config=llm_config(f"ranking {name}"))
     except Exception as exc:
-        return fallback(f"Ollama request failed ({type(exc).__name__}: {exc}); check that Ollama is running "
-                        f"and '{OLLAMA_MODEL}' is pulled (ollama pull {OLLAMA_MODEL})")
+        hint = ("check GROQ_API_KEY and the Groq rate limits" if LLM_PROVIDER == "groq" else
+                f"check that Ollama is running and '{OLLAMA_MODEL}' is pulled (ollama pull {OLLAMA_MODEL})")
+        return fallback(f"{LLM_LABEL} request failed ({type(exc).__name__}: {exc}); {hint}")
     result: PoolRanking | None = output["parsed"]
     if result is None:
         return fallback(f"model did not return valid output: {output['parsing_error']}")
@@ -1830,7 +1869,8 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
         result = {"papers": [dict(agent_paper(h), rerank_rank=rerank_rank_of[h.arxiv_id],
                                   relevance=round(score_of[h.arxiv_id], 2)) for h in top]} if top else \
             {"papers": [], "note": ("No paper was relevant enough (reranker score below "
-                                    f"{rerank_cutoff()}). Try another wording, or fewer filters." if pool else
+                                    f"{rerank_cutoff()}). Try another wording, or fewer filters. Tell the user "
+                                    "nothing relevant was found; do not suggest papers from memory." if pool else
                                     "No papers matched; try a broader query or fewer filters.")}
         if top and last_name_only:
             result["note"] = (f"No paper by {' & '.join(authors)} with that first name. These papers are by authors "
@@ -1896,7 +1936,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
 @functools.lru_cache(maxsize=1)
 def get_agent_llm():
     # temperature 0 + a fixed seed: the same question gives the same searches and answer (repeatable evals)
-    return ollama_llm(temperature=AGENT_TEMPERATURE, seed=AGENT_SEED, reasoning=True, num_predict=AGENT_MAX_TOKENS)
+    return chat_llm(temperature=AGENT_TEMPERATURE, seed=AGENT_SEED, reasoning=True, num_predict=AGENT_MAX_TOKENS)
 
 
 # Research question -> answer from the tool loop. The cited papers become response.papers (cards 1, 2, ...).
@@ -2404,10 +2444,21 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
 <span class="hint">Already have an account? <a href="/login">Log in</a></span>
 </form></body></html>""")
 
+    def _signup_closed() -> HTMLResponse:
+        return HTMLResponse('<!doctype html><meta charset="utf-8"><title>Sign up</title>'
+                            '<p style="font-family:system-ui,sans-serif;text-align:center;margin-top:20vh">'
+                            'Sign-up is closed. <a href="/login">Back to log in</a></p>', status_code=403)
+
     async def gui_signup_form():
-        return _signup_page()
+        return _signup_page() if ALLOW_SIGNUP else _signup_closed()
+
+    # Tells the login page (public/custom.js) whether to show the "Create an account" link.
+    async def gui_signup_enabled():
+        return JSONResponse({"enabled": ALLOW_SIGNUP})
 
     async def gui_signup(username: str = Form(""), password: str = Form(""), password2: str = Form("")):
+        if not ALLOW_SIGNUP:
+            return _signup_closed()
         if password != password2:
             return _signup_page("Passwords do not match.", username)
         try:
@@ -2437,10 +2488,11 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         db.set_pref(current_user.identifier, NEWEST_FIRST_PREF, "1" if value else "0")
         return JSONResponse({"value": value})
 
-    _OWN_ROUTES = ("/signup", "/prefs/newest-first")
+    _OWN_ROUTES = ("/signup", "/signup-enabled", "/prefs/newest-first")
     _server.router.routes[:] = [r for r in _server.router.routes if getattr(r, "path", None) not in _OWN_ROUTES]
     _server.add_api_route("/signup", gui_signup_form, methods=["GET"], response_class=HTMLResponse)
     _server.add_api_route("/signup", gui_signup, methods=["POST"])
+    _server.add_api_route("/signup-enabled", gui_signup_enabled, methods=["GET"])
     _server.add_api_route("/prefs/newest-first", gui_get_newest_first, methods=["GET"])
     _server.add_api_route("/prefs/newest-first", gui_set_newest_first, methods=["POST"])
     # stable sort: our routes go in front of Chainlit's catch-all UI route
