@@ -34,7 +34,7 @@ Papers are numbered 1, 2, 3, … in each result, and every new result starts aga
 
 ## Reading list and export
 
-Click **☐ Select** under a paper to add it to your reading list. The panel on the right (the **📚 Reading list** tab) lets you reorder and remove papers, and exports a zip with a BibTeX file, the PDFs and the selected text.
+Click **☐ Select** under a paper to add it to your reading list. The panel on the right (open it with **Reading list** in the top bar; the number shows how many papers it holds) lets you reorder and remove papers, and exports a zip with a BibTeX file, the PDFs and the selected text.
 
 ## Settings
 

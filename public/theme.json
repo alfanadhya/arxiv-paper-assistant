@@ -26,7 +26,7 @@
       "--input": "220 13% 73%",
       "--ring": "240 100% 50%",
       "--radius": "0.5rem",
-      "--sidebar-background": "0 0% 100%",
+      "--sidebar-background": "240 8% 97%",
       "--sidebar-foreground": "0 0% 0%",
       "--sidebar-primary": "240 100% 50%",
       "--sidebar-primary-foreground": "0 0% 100%",

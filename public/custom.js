@@ -3,8 +3,9 @@
 //  2. After deleting chats in the left pane: when no chat is left, open a fresh chat, so the screen does not
 //     keep showing messages of a chat that no longer exists (Chainlit only clears the screen when the deleted
 //     chat is the one it thinks is open; a chat missing from the list, e.g. after the DB was reset, stays).
-//  3. An always-visible "Reading list" tab on the right edge to reopen the reading-list panel (the in-chat
-//     "Reading list" buttons are hidden; the tab clicks them).
+//  3. A "Reading list" button in the top bar, with the number of papers in the list, to open and close the
+//     reading-list panel (the in-chat "Reading list" buttons are hidden; the button clicks them). Not shown
+//     on the login and sign-up pages.
 
 // 0. Light theme only (DESIGN.md): Chainlit keeps the user's last choice in localStorage; reset it before the
 //    app reads it (this script runs before Chainlit's own, see the <script> order in the page).
@@ -67,9 +68,11 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     }, 800);   // let Chainlit update the list and run its own clear first
   }
 
-  // ------------------------------------------------------------------ 3. always-visible "Reading list" tab
-  // A tab on the right edge that toggles the reading-list panel: opens it by clicking one of the app's own
-  // "Reading list" buttons (ids start with 'open-list-'), closes it with the panel's own close button.
+  // ------------------------------------------------------------------ 3. "Reading list" button in the top bar
+  // Toggles the reading-list panel: opens it by clicking one of the app's own "Reading list" buttons (ids
+  // start with 'open-list-'), closes it with the panel's own close button. A badge shows how many papers are
+  // in the list (window messages 'reading_list' and 'reading_list_count' from app.py) and pulses when a paper
+  // is added, so selecting a paper visibly lands somewhere.
   // Chainlit marks an open panel with #side-view-title (its header holds the close button).
   function panelOpen() {
     return !!document.getElementById("side-view-title");
@@ -80,7 +83,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     if (buttons.length) {
       buttons[buttons.length - 1].click();
     } else {
-      tab.title = "No reading-list button yet: start a new chat or run a search first";
+      tab.title = "The reading list is not ready yet: start a new chat or run a search first";
     }
   }
 
@@ -107,6 +110,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     // action runs), the new panel starts from this list, so nothing has to be redrawn from the server.
     const store = window.__readingListStore || {};
     window.__readingListStore = { ...store, papers: data.papers || [], pinned: data.pinned !== false };
+    setCount((data.papers || []).length);
     if (!panelOpen()) {
       openReadingList();
       return;
@@ -122,55 +126,110 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     setTimeout(redeliver, 250);
   });
 
-  // Show the right label for the panel's current state.
-  function updateTabLabel() {
+  // Count of papers in the list; null = not known yet (no message since the page loaded)
+  let count = null;
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (data && data.type === "reading_list_count") setCount(data.count);
+  });
+
+  function setCount(n) {
+    n = Math.max(0, Number(n) || 0);
+    const grew = count !== null && n > count;
+    count = n;
+    updateTab();
+    if (grew && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      tab.classList.remove("rl-pulse");
+      void tab.offsetWidth;   // restart the animation
+      tab.classList.add("rl-pulse");
+    }
+  }
+
+  // Badge, pressed state and accessible name for the panel's current state and the current count.
+  function updateTab() {
     const open = panelOpen();
-    const label = open ? "✕ Hide reading list" : "Reading list";
-    if (tab.textContent !== label) {
-      tab.textContent = label;
-      tab.title = open ? "Hide the reading list" : "Show the reading list";
-      tab.setAttribute("aria-label", tab.title);
+    const n = count || 0;
+    if (tab.dataset.open !== String(open)) {
+      tab.dataset.open = String(open);
       tab.setAttribute("aria-expanded", String(open));
+    }
+    if (tab.dataset.count !== String(n)) {
+      tab.dataset.count = String(n);
+      badge.textContent = String(n);
+    }
+    const title = (open ? "Hide the reading list" : "Show the reading list") +
+                  ` (${n} paper${n === 1 ? "" : "s"})`;
+    if (tab.title !== title) {
+      tab.title = title;
+      tab.setAttribute("aria-label", title);
     }
   }
 
   const tab = document.createElement("button");
   tab.type = "button";
-  tab.id = "reading-list-tab";
-  tab.textContent = "Reading list";
-  tab.title = "Show the reading list";
-  tab.setAttribute("aria-label", "Show the reading list");
-  // The primary action blue (#0000ff, Chainlit's --primary from public/theme.json), flat, label font.
-  tab.style.cssText =
-    "position:fixed;right:0;top:50%;transform:translateY(-50%);writing-mode:vertical-rl;" +
-    "z-index:2147483000;padding:14px 8px;border:none;border-radius:8px 0 0 8px;" +
-    "background:hsl(var(--primary, 240 100% 50%));color:hsl(var(--primary-foreground, 0 0% 100%));" +
-    "cursor:pointer;font:500 12px 'Space Grotesk','Inter',system-ui,sans-serif;letter-spacing:.073em;" +
-    "text-transform:uppercase;opacity:.9;";
-  tab.addEventListener("mouseenter", () => (tab.style.opacity = "1"));
-  tab.addEventListener("mouseleave", () => (tab.style.opacity = ".9"));
+  tab.id = "reading-list-button";
+  // Bookmark icon (lucide "bookmark"), label, count badge; styles in the <style> below
+  tab.innerHTML =
+    '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 ' +
+    '2 0 0 1 2 2v16z"/></svg><span class="rl-label">Reading list</span><span class="rl-badge">0</span>';
+  const badge = tab.querySelector(".rl-badge");
+  tab.dataset.count = "0";
   tab.addEventListener("click", toggleReadingList);
 
-  // The tab is the only way in: the "Reading list" buttons under the greeting and the summaries are hidden.
+  // Same frame as the Settings button next to it; the badge turns primary blue once the list has papers,
+  // and the button is shaded while the panel is open.
+  const tabStyle = document.createElement("style");
+  tabStyle.textContent = `
+    #reading-list-button { display:inline-flex; align-items:center; gap:6px; margin:0 8px 0 0;
+      padding:4px 6px 4px 10px; font-size:14px; white-space:nowrap; cursor:pointer; color:inherit;
+      background:transparent; border:1px solid hsl(var(--border, 0 0% 80%)); border-radius:6px;
+      transition:background .15s, border-color .15s; }
+    #reading-list-button:hover { border-color: var(--c-carbon, #000); }
+    #reading-list-button:focus-visible { outline:2px solid hsl(var(--primary, 240 100% 50%)); outline-offset:2px; }
+    #reading-list-button[data-open="true"] { background: var(--c-ash, #f2f2f2); border-color: var(--c-carbon, #000); }
+    #reading-list-button .rl-badge { min-width:20px; height:20px; padding:0 6px; border-radius:9999px;
+      display:inline-flex; align-items:center; justify-content:center; font:600 12px var(--f-label, system-ui);
+      background: var(--c-ash, #f2f2f2); color: var(--c-slate, #717886); }
+    #reading-list-button:not([data-count="0"]) .rl-badge { background: hsl(var(--primary, 240 100% 50%)); color:#fff; }
+    #reading-list-button.rl-pulse .rl-badge { animation: rl-pulse .6s ease-out; }
+    @keyframes rl-pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0,0,255,.45); }
+      40% { transform: scale(1.25); } 100% { transform: scale(1); box-shadow: 0 0 0 8px rgba(0,0,255,0); } }
+    @media (max-width: 640px) { #reading-list-button .rl-label { display:none; } }`;
+  document.head.appendChild(tabStyle);
+
+  // The button is the only way in: the "Reading list" buttons under the greeting and the summaries are hidden.
   // They stay in the page (display:none), because openReadingList() above clicks them.
   const hideButtons = document.createElement("style");
   hideButtons.textContent = 'button[id^="open-list-"] { display: none !important; }';
   document.head.appendChild(hideButtons);
 
-  // Add the tab once the page body exists, and put it back if the page ever removes it.
+  // Put the button in the top bar's right-hand group. The page's own controls there always come in one order,
+  // whichever script added them last: Newest first, Settings, Reading list, then Chainlit's buttons. Never on
+  // the login or sign-up page: taken off the page there if it is still in it.
+  const ORDER = ["newest-first-toggle", "settings-button", "reading-list-button"];
   function mountTab() {
-    if (document.body && !document.getElementById("reading-list-tab")) document.body.appendChild(tab);
-  }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", mountTab);
-  } else {
-    mountTab();
+    const authPage = location.pathname.startsWith("/login") || location.pathname.startsWith("/signup");
+    if (authPage) {
+      if (tab.isConnected) tab.remove();
+      return;
+    }
+    const header = document.getElementById("header");
+    const right = header && [...header.children].reverse().find((el) => el.classList.contains("gap-1"));
+    if (!right) return;   // top bar not rendered yet: the observer calls again
+    if (tab.parentElement !== right) right.prepend(tab);
+    const items = ORDER.map((id) => document.getElementById(id)).filter((el) => el && el.parentElement === right);
+    items.forEach((el, i) => {
+      if (right.children[i] !== el) right.insertBefore(el, right.children[i]);
+    });
   }
   new MutationObserver(() => {
     mountTab();
-    updateTabLabel();   // follows the panel opening/closing, whatever opened or closed it
+    updateTab();   // follows the panel opening/closing, whatever opened or closed it
   }).observe(document.documentElement, { childList: true, subtree: true });
-  console.log("[custom.js] reading-list tab ready");
+  mountTab();
+  updateTab();
+  console.log("[custom.js] reading-list button ready");
 
   // Watch the browser's requests for chat deletions (DELETE /project/thread).
   const originalFetch = window.fetch.bind(window);
@@ -237,7 +296,14 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
       }
     });
     label.appendChild(box);
-    label.appendChild(document.createTextNode("Newest first"));
+    // full text, and a short one for phones (public/theme.css "top bar on small screens")
+    const full = document.createElement("span");
+    full.className = "hdr-label";
+    full.textContent = "Newest first";
+    const short = document.createElement("span");
+    short.className = "hdr-short";
+    short.textContent = "Newest";
+    label.append(full, short);
     right.prepend(label);   // in front of the buttons on the right of the top bar
   }
 
@@ -289,6 +355,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     }
     banner.title = HINT;   // full text on hover when the top bar is too narrow
     if (banner.textContent !== HINT) banner.textContent = HINT;
+    fit(header, banner);
     // Message box border (public/theme.css): the turn's colour; unset = theme.css's grey (black on focus)
     const color = turn < 0 ? "" : COLORS[turn];
     if (document.documentElement.style.getPropertyValue("--mode-color") !== color) {
@@ -296,6 +363,30 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
       else document.documentElement.style.removeProperty("--mode-color");
     }
   }
+
+  // The banner sits in the middle of the top bar's free space (between the button groups on the left and on
+  // the right: Newest first, Settings, Reading list, ...), so it never covers them. It is cut with "..." when
+  // the space is short and hidden when even a short pill would not fit.
+  function fit(header, banner) {
+    const box = header.getBoundingClientRect();
+    const mid = box.left + box.width / 2;
+    let from = box.left, to = box.right;   // free span of the top bar
+    for (const el of header.children) {
+      if (el === banner) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      if (r.left + r.width / 2 <= mid) from = Math.max(from, r.right);
+      else to = Math.min(to, r.left);
+    }
+    const max = Math.floor(to - from - 24);
+    const display = max < 160 ? "none" : "";
+    if (banner.style.display !== display) banner.style.display = display;
+    if (display) return;
+    const left = Math.round((from + to) / 2 - box.left) + "px";
+    if (banner.style.left !== left) banner.style.left = left;
+    if (banner.style.maxWidth !== max + "px") banner.style.maxWidth = max + "px";
+  }
+  window.addEventListener("resize", render);
 
   window.addEventListener("message", (event) => {
     const data = event.data;
@@ -325,7 +416,9 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     document.querySelectorAll(".ai-message").forEach((msg) => {
       const text = (msg.textContent || "").trim();
       const greeting = !!msg.querySelector(".home") || text.startsWith("Hi! Ask in your own words");
-      const plain = greeting || (afterGreeting && /^(Checking the models|Loading|Ready\.|Setup failed)/.test(text));
+      // the start-up status panel (Status.jsx), or the plain-text check line of older chats
+      const plain = greeting || !!msg.querySelector(".startup-status") ||
+                    (afterGreeting && /^(Checking the models|Loading|Ready\.|Setup failed)/.test(text));
       if (plain !== msg.hasAttribute("data-no-avatar")) msg.toggleAttribute("data-no-avatar", plain);
       afterGreeting = greeting;
     });
@@ -501,7 +594,8 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
       btn = document.createElement("button");
       btn.id = ID;
       btn.type = "button";
-      btn.textContent = "⚙ Settings";
+      btn.innerHTML = '⚙<span class="hdr-label">&nbsp;Settings</span>';   // gear only on phones (theme.css)
+      btn.setAttribute("aria-label", "Settings");
       btn.style.cssText =
         "display:inline-flex;align-items:center;font-size:14px;cursor:pointer;white-space:nowrap;" +
         "margin:0 8px;padding:4px 10px;border:1px solid hsl(var(--border, 0 0% 80%));border-radius:6px;" +
@@ -566,4 +660,153 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     "#thread-history [data-sidebar='group'] + [data-sidebar='group'] { padding-top: 0 !important; } " +
     "#thread-history [data-sidebar='group']:not(:last-child) { padding-bottom: 0 !important; }";
   (document.head || document.documentElement).appendChild(style);
+})();
+
+// 11. Login page look: the app's own brand instead of Chainlit's.
+//     - Top left: a horizontal lockup, the ring logo of the Home screen (public/elements/Home.jsx, static here)
+//       + "ARXIV PAPER ASSISTANT", in place of Chainlit's logo image.
+//     - Right-hand panel: a GradientASCII animation (public/gradient-ascii.js, loaded only on this page) in the
+//       logo's blues, in place of Chainlit's big pink logo, with what the app does on top of it.
+//     - Small screens (no right-hand panel): the same one-line tagline under the form title.
+//     Styles: public/theme.css ("login page").
+(function () {
+  const PITCH_TITLE = "Find computer science papers on arXiv";
+  const PITCH_LEAD = "Search arXiv papers from 2007 to October 2026 in plain words, save the ones you need and " +
+                     "export them to Zotero or Mendeley.";
+  // The Home screen's ring (Home.jsx Logo), without the spin; ids prefixed so they never clash
+  const RING =
+    '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 200 200" aria-hidden="true">' +
+    '<g clip-path="url(#brand_clip)"><mask id="brand_mask" style="mask-type:alpha" width="200" height="200" x="0" ' +
+    'y="0" maskUnits="userSpaceOnUse"><path fill="#fff" fill-rule="evenodd" clip-rule="evenodd" d="M100 150c27.614 ' +
+    '0 50-22.386 50-50s-22.386-50-50-50-50 22.386-50 50 22.386 50 50 50zm0 50c55.228 0 100-44.772 100-100S155.228 ' +
+    '0 100 0 0 44.772 0 100s44.772 100 100 100z"/></mask><g mask="url(#brand_mask)"><path fill="#fff" ' +
+    'd="M200 0H0v200h200V0z"/><path fill="#0066FF" fill-opacity="0.33" d="M200 0H0v200h200V0z"/>' +
+    '<g filter="url(#brand_blur)"><path fill="#0066FF" d="M110 32H18v68h92V32z"/><path fill="#0044FF" ' +
+    'd="M188-24H15v98h173v-98z"/><path fill="#0099FF" d="M175 70H5v156h170V70z"/><path fill="#00CCFF" ' +
+    'd="M230 51H100v103h130V51z"/></g></g></g><defs><filter id="brand_blur" width="385" height="410" x="-75" ' +
+    'y="-104" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" ' +
+    'result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>' +
+    '<feGaussianBlur result="blur" stdDeviation="40"/></filter><clipPath id="brand_clip"><path fill="#fff" ' +
+    'd="M0 0H200V200H0z"/></clipPath></defs></svg>';
+
+  let stopArt = null;   // stops the animation (set once it runs)
+  let scriptRequested = false;
+
+  function onLogin() {
+    return location.pathname.startsWith("/login");
+  }
+
+  function brand() {
+    const logo = document.querySelector("img.logo");
+    if (!logo || document.getElementById("brand-lockup")) return;
+    const lockup = document.createElement("div");
+    lockup.id = "brand-lockup";
+    lockup.innerHTML = RING + '<span class="brand-name">arXiv Paper Assistant</span>';
+    lockup.setAttribute("aria-label", "arXiv Paper Assistant");
+    lockup.setAttribute("role", "img");
+    logo.after(lockup);
+  }
+
+  function tagline() {
+    const title = document.querySelector("form h1");
+    if (!title || document.getElementById("login-tagline")) return;
+    const p = document.createElement("p");
+    p.id = "login-tagline";
+    p.textContent = PITCH_TITLE + ". " + PITCH_LEAD;
+    title.after(p);
+  }
+
+  function art() {
+    const old = document.querySelector('img[src*="/favicon"]');
+    const panel = old && old.parentElement;
+    if (!panel || panel.querySelector("#login-art")) return;
+    panel.id = "login-panel";
+    const box = document.createElement("div");
+    box.id = "login-art";
+    const pitch = document.createElement("div");
+    pitch.id = "login-pitch";
+    pitch.innerHTML = "<h2></h2><p></p>";   // the name is already in the top-left lockup
+    pitch.querySelector("h2").textContent = PITCH_TITLE;
+    pitch.querySelector("p").textContent = PITCH_LEAD;
+    panel.append(box, pitch);
+    const start = () => {
+      if (stopArt || !box.isConnected || typeof window.mountGradientASCII !== "function") return;
+      stopArt = window.mountGradientASCII(box, {
+        lightMode: true, shape: "horizon", colors: ["#0044FF", "#f6f8ff", "#00CCFF", "#0099FF"],
+        cellSize: 16, density: 0.8, glyphOpacity: 0.8, glow: 0.15, gradientOpacity: 0.7, speed: 0.8,
+      }) || (() => {});
+    };
+    if (typeof window.mountGradientASCII === "function") {
+      start();
+    } else if (!scriptRequested) {
+      scriptRequested = true;
+      const s = document.createElement("script");
+      s.src = "/public/gradient-ascii.js?v=1";
+      s.onload = start;
+      document.head.appendChild(s);
+    }
+  }
+
+  function render() {
+    if (!onLogin()) {
+      if (stopArt) { stopArt(); stopArt = null; }   // left the page (signed in): stop drawing
+      if (document.documentElement.hasAttribute("data-auth-page")) {
+        document.documentElement.removeAttribute("data-auth-page");
+      }
+      return;
+    }
+    document.documentElement.setAttribute("data-auth-page", "");
+    brand();
+    tagline();
+    art();
+  }
+  new MutationObserver(render).observe(document.documentElement, { childList: true, subtree: true });
+  render();
+})();
+
+// 12. While the start-up check runs (public/elements/Status.jsx, window message 'startup_status'), the message
+//     box stays usable for typing but nothing is sent: the placeholder says so, Enter is held back and the
+//     send button explains why. Everything goes back to normal when the check ends (ready, limited or failed).
+(function () {
+  const WAIT_TEXT = "Getting ready… you can start typing";
+  let waiting = false;
+  let normalPlaceholder = null;   // Chainlit's own placeholder, restored afterwards
+
+  function apply() {
+    const box = document.getElementById("chat-input");
+    if (box) {
+      if (normalPlaceholder === null && box.placeholder !== WAIT_TEXT) normalPlaceholder = box.placeholder;
+      const want = waiting ? WAIT_TEXT : normalPlaceholder;
+      if (want !== null && box.placeholder !== want) box.placeholder = want;
+    }
+    const send = document.getElementById("chat-submit");
+    if (send) {
+      const title = waiting ? "Available in a moment, when the check is done" : "";
+      if ((send.getAttribute("title") || "") !== title) {
+        if (title) send.setAttribute("title", title);
+        else send.removeAttribute("title");
+      }
+    }
+  }
+
+  window.addEventListener("message", (event) => {
+    const d = event.data;
+    if (!d || d.type !== "startup_status" || !d.data) return;
+    const now = d.data.state === "checking";
+    if (now !== waiting) {
+      waiting = now;
+      apply();
+    }
+  });
+
+  // Enter would send the message: hold it back while waiting (Shift+Enter still makes a new line)
+  document.addEventListener("keydown", (event) => {
+    if (!waiting || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    if (!event.target || event.target.id !== "chat-input") return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+
+  new MutationObserver(() => { if (waiting) apply(); })
+    .observe(document.documentElement, { childList: true, subtree: true });
 })();

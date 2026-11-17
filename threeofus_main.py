@@ -1003,12 +1003,20 @@ def warmup(log: LogFn = lambda msg: None) -> int | None:
 # Cheap start-of-chat check: load/reconnect only what is missing. Models already in memory are reused;
 # Qdrant is pinged (client rebuilt only if the ping fails); qwen is warmed up only if Ollama hasn't got it
 # loaded. Returns one status line per component (for the "Ready" message); raises if Qdrant is unreachable.
-def health_check(log: LogFn = lambda msg: None) -> list[str]:
+# `step(key, state, detail, tech)` reports each component as it goes (the GUI's start-up status panel):
+# key "index" (Qdrant + embedding models), "ranking" (reranker) or "llm"; state "running", "done" or "warn"
+# (works, with a limit the user should know about); detail = for the user, tech = model names and timings.
+StepFn = Callable[[str, str, str, str], None]
+
+
+def health_check(log: LogFn = lambda msg: None, step: StepFn | None = None) -> list[str]:
     import time
     import httpx
     status = []
+    report = step or (lambda key, state, detail="", tech="": None)
 
     # Embedding models + Qdrant connection (models are loaded once per server process)
+    report("index", "running", "", "")
     t = time.time()
     loaded_before = _retriever is not None
     retriever = get_retriever(log)
@@ -1026,13 +1034,20 @@ def health_check(log: LogFn = lambda msg: None) -> list[str]:
                   f"Qdrant `{COLLECTION}`: {ping}")
     status.append("Embedding models: " + ("already loaded" if loaded_before else
                                           f"loaded now ({time.time() - t:.1f} s)"))
+    report("index", "done", f"{count:,} papers ({DB_COVERAGE})" if count else "connected",
+           f"Qdrant {COLLECTION}: {ping} · embedding models " +
+           ("already loaded" if loaded_before else f"loaded now ({time.time() - t:.1f} s)"))
 
     # Cross-encoder reranker (loaded once per server process)
+    report("ranking", "running", "", "")
     t = time.time()
     rerank_before = _reranker is not None
     get_reranker(log)
     status.append(f"Reranker `{RERANKER_MODEL}`: " + ("already loaded" if rerank_before else
                                                       f"loaded now ({time.time() - t:.1f} s)"))
+    report("ranking", "done", "", f"{RERANKER_MODEL}: " + ("already loaded" if rerank_before else
+                                                            f"loaded now ({time.time() - t:.1f} s)"))
+    report("llm", "running", "", "")
 
     # LangChain chains: cheap objects, cached after the first call
     get_chains(), get_retry_analyze_chain(), get_rewrite_chain(), get_title_chain()
@@ -1042,6 +1057,11 @@ def health_check(log: LogFn = lambda msg: None) -> list[str]:
         status.append(f"Groq `{GROQ_MODEL}`: " + ("API key set" if os.getenv("GROQ_API_KEY") else
                                                   "GROQ_API_KEY missing in .env; searches will fall back to "
                                                   "reranker order"))
+        if os.getenv("GROQ_API_KEY"):
+            report("llm", "done", "", f"Groq {GROQ_MODEL}: API key set")
+        else:
+            report("llm", "warn", "Not set up: results come in the ranking model's order, without answers",
+                   f"Groq {GROQ_MODEL}: GROQ_API_KEY missing in .env")
         return status
 
     # Ollama: is qwen loaded (with our context size)? If not, an empty request loads it.
@@ -1052,8 +1072,11 @@ def health_check(log: LogFn = lambda msg: None) -> list[str]:
             gpu = loaded.get("size_vram", 0) / max(loaded.get("size", 1), 1)
             status.append(f"Ollama `{OLLAMA_MODEL}`: already loaded ({gpu:.0%} GPU, context "
                           f"{loaded.get('context_length') or NUM_CTX:,})")
+            report("llm", "done", "", f"Ollama {OLLAMA_MODEL}: already loaded ({gpu:.0%} GPU, context "
+                                      f"{loaded.get('context_length') or NUM_CTX:,})")
         else:
             log(f"Loading {OLLAMA_MODEL} into Ollama...")
+            report("llm", "running", "Loading (up to a minute)", f"Ollama {OLLAMA_MODEL}")
             t = time.time()
             keep_alive = int(OLLAMA_KEEP_ALIVE) if OLLAMA_KEEP_ALIVE.lstrip("-").isdigit() else OLLAMA_KEEP_ALIVE
             httpx.post(f"{OLLAMA_URL}/api/generate", timeout=300,
@@ -1061,9 +1084,12 @@ def health_check(log: LogFn = lambda msg: None) -> list[str]:
                              "options": {"num_ctx": NUM_CTX}}).raise_for_status()
             reason = "context size differed" if loaded else "was not loaded"
             status.append(f"Ollama `{OLLAMA_MODEL}`: loaded now ({time.time() - t:.1f} s; {reason})")
+            report("llm", "done", "", f"Ollama {OLLAMA_MODEL}: loaded now ({time.time() - t:.1f} s; {reason})")
     except Exception as exc:
         status.append(f"Ollama `{OLLAMA_MODEL}`: NOT available ({type(exc).__name__}: {exc}); searches will "
                       "fall back to reranker order")
+        report("llm", "warn", "Not available: results come in the ranking model's order, without answers",
+               f"Ollama {OLLAMA_MODEL}: {type(exc).__name__}: {exc}")
     return status
 
 
@@ -2596,6 +2622,22 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
             db.set_pref(user.identifier, CUTOFF_PREF, str(value))
             db.set_pref(user.identifier, DIAG_OPEN_PREF, "1" if diag_open else "0")
 
+    # Load the models when the server starts, in the background, so the first chat does not wait for them
+    # (the start-up check of each chat then finds them loaded). WARMUP_ON_START=0 in .env turns it off.
+    @cl.on_app_startup
+    def gui_warmup():
+        if os.getenv("WARMUP_ON_START", "1").strip().lower() in ("0", "false", "no", "off"):
+            return
+
+        def run():
+            try:
+                for line in health_check(lambda msg: print(f"[warm-up] {msg}", flush=True)):
+                    print(f"[warm-up] {line}", flush=True)
+            except Exception as exc:   # the chat's own check reports problems to the user
+                print(f"[warm-up] failed: {type(exc).__name__}: {exc}", flush=True)
+
+        threading.Thread(target=run, name="warmup", daemon=True).start()
+
     # Old chat reopened from the left pane: restore state, buttons and sidebar.
     @cl.on_chat_resume
     async def gui_resume(thread: dict):
@@ -2614,22 +2656,26 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         await send_settings()
         await gui.show_mode(None)   # banner: neutral until the first message
         await gui.send_welcome()
-        status = cl.Message("Checking the models and the database...")
-        await status.send()
+        # Start-up check as a status panel (public/elements/Status.jsx): a live checklist, then one line
+        status = gui.new_status()
+        status_msg, status_el = await gui.send_status(status)
 
-        # Only shown when something actually has to be loaded or reconnected.
+        # Loading lines (only when something actually has to be loaded or reconnected) and step progress
         def log(msg: str) -> None:
-            status.content = msg
-            cl.run_sync(status.update())
+            status["note"] = msg
+            status["seq"] += 1
+            cl.run_sync(gui.push_status(status, status_msg.id))
+
+        def step(key: str, state: str, detail: str = "", tech: str = "") -> None:
+            gui.set_status_step(status, key, state, detail, tech)
+            cl.run_sync(gui.push_status(status, status_msg.id))
 
         try:
-            lines = await cl.make_async(health_check)(log)
+            await cl.make_async(health_check)(log, step)
+            gui.end_status(status)
         except Exception as exc:
-            status.content = f"**Setup failed:** {type(exc).__name__}: {exc}"
-            await status.update()
-            return
-        status.content = "**Ready.**\n" + "\n".join(f"- {line}" for line in lines)
-        await status.update()
+            gui.end_status(status, f"{type(exc).__name__}: {exc}")
+        await gui.finish_status(status_msg, status_el, status)
 
     # User prompt: run the pipeline off the event loop, then show summary, paper cards and diagnostics.
     @cl.on_message

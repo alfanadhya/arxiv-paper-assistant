@@ -143,7 +143,7 @@ export default function Home() {
         <div className="home-tip">
           <BookOpen className="home-tip-icon" />
           <span>
-            Click <b>☐ Select</b> under a paper to save it. Open the <b>Reading list</b> tab on the right to
+            Click <b>☐ Select</b> under a paper to save it. Open <b>Reading list</b> in the top bar to
             reorder and export (BibTeX, PDFs).
           </span>
         </div>

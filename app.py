@@ -278,6 +278,84 @@ async def push_reading_list() -> None:
                                   "seq": time.time_ns()})   # seq: the panel confirms it applied this update
 
 
+# Tell the page how many papers are in this chat's reading list (the badge on the top-bar "Reading list"
+# button, public/custom.js section 3). Sent when a chat starts or is reopened; changes after that arrive with
+# push_reading_list().
+async def push_list_count() -> None:
+    await cl.send_window_message({"type": "reading_list_count", "count": len(reading_list())})
+
+
+# ---------------------------------------------------------------- start-up status panel
+# The check that runs when a chat starts (threeofus_main.health_check) is shown as a small status panel
+# (public/elements/Status.jsx): a live checklist while it runs, then one line ("Ready", "Ready with limits",
+# "Setup failed") with the details folded away unless something needs the user's attention.
+# data: {state: checking|ok|limited|failed, steps: [{key, label, state, detail, tech}], note, error, seq}
+STATUS_STEPS = [("index", "Paper index"), ("ranking", "Ranking model"), ("llm", "Language model")]
+
+
+def new_status() -> dict:
+    return {"state": "checking", "note": "", "error": "", "seq": 0,
+            "steps": [{"key": k, "label": label, "state": "pending", "detail": "", "tech": ""}
+                      for k, label in STATUS_STEPS]}
+
+
+# Record one step's progress (called from the worker thread through health_check's step callback).
+def set_status_step(data: dict, key: str, state: str, detail: str = "", tech: str = "") -> None:
+    for s in data["steps"]:
+        if s["key"] == key:
+            s["state"] = state
+            if detail or state != "running":   # a "running" report without text keeps the last detail
+                s["detail"] = detail
+            if tech:
+                s["tech"] = tech
+    data["seq"] += 1
+
+
+# Final state: "failed" if the check raised (the step that was running is marked failed), "limited" if a
+# step works with a limit, else "ok". The note (a loading line) is cleared.
+def end_status(data: dict, error: str | None = None) -> None:
+    if error:
+        data["state"], data["error"] = "failed", error
+        for s in data["steps"]:
+            if s["state"] == "running":
+                s["state"] = "fail"
+    else:
+        data["state"] = "limited" if any(s["state"] == "warn" for s in data["steps"]) else "ok"
+    data["note"] = ""
+    data["seq"] += 1
+
+
+def status_element(data: dict, msg_id: str) -> cl.CustomElement:
+    return cl.CustomElement(name="Status", props={**data, "panel_id": msg_id}, display="inline",
+                            id=f"status-{msg_id}")
+
+
+# Send the panel (in its "checking" state) as its own message; returns (message, element).
+async def send_status(data: dict) -> tuple[cl.Message, cl.CustomElement]:
+    msg = cl.Message(content="", metadata={"kind": "status"})
+    element = status_element(data, msg.id)
+    msg.elements = [element]
+    await msg.send()
+    await push_status(data, msg.id)
+    return msg, element
+
+
+# Live update: a window message the mounted panel takes in place (no element re-sent), as with diagnostics.
+async def push_status(data: dict, panel_id: str) -> None:
+    import copy
+    await cl.send_window_message({"type": "startup_status", "panel_id": panel_id, "data": copy.deepcopy(data)})
+
+
+# The finished state: pushed to the page, kept in the element, and saved in the message's metadata so a
+# reopened chat redraws the same panel (resume()).
+async def finish_status(msg: cl.Message, element: cl.CustomElement, data: dict) -> None:
+    await push_status(data, msg.id)
+    element.props = {**data, "panel_id": msg.id}
+    await element.update()
+    msg.metadata = {"kind": "status", "status": data}
+    await msg.update()
+
+
 # Close the right-hand panel.
 async def close_sidebar() -> None:
     await cl.ElementSidebar.set_elements([])
@@ -292,6 +370,7 @@ async def send_welcome() -> None:
     msg.actions = [open_list_button(msg.id)]
     msg.elements = [home_element(msg.id)]
     await msg.send()
+    await push_list_count()
 
 
 def home_element(msg_id: str) -> cl.CustomElement:
@@ -424,6 +503,12 @@ async def resume(thread: dict) -> None:
             if not isinstance(thread.get("elements"), list):
                 thread["elements"] = []
             thread["elements"].append(home.to_dict())
+        elif meta.get("kind") == "status" and meta.get("status"):   # start-up status panel (same reason)
+            panel = status_element(meta["status"], step["id"])
+            panel.for_id = step["id"]
+            if not isinstance(thread.get("elements"), list):
+                thread["elements"] = []
+            thread["elements"].append(panel.to_dict())
         elif meta.get("kind") == "diagnostics" and meta.get("diagnostics"):
             # Redraw the saved diagnostics panel under its own message. Chainlit sends `thread` to the browser
             # AFTER this resume and the browser then replaces all its elements with thread["elements"] (empty:
@@ -433,10 +518,11 @@ async def resume(thread: dict) -> None:
             if not isinstance(thread.get("elements"), list):
                 thread["elements"] = []
             thread["elements"].append(panel.to_dict())
-    if not has_list_button and steps:   # keep a button for the always-visible "Reading list" tab
+    if not has_list_button and steps:   # keep a button for the top-bar "Reading list" button to click
         await resend(open_list_button(steps[0]["id"]), steps[0]["id"])
     if reading_list():
         await refresh_sidebar()
+    await push_list_count()
     await show_mode(None)   # no remembered mode: the banner is neutral until the next message
 
 

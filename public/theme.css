@@ -189,6 +189,16 @@ body { font-family: var(--f-body); -webkit-font-smoothing: antialiased; backgrou
 /* Hide Chainlit's rail on the pane's right edge: the resize handle from public/custom.js section 8 sits there */
 [data-sidebar="rail"] { display: none !important; }
 
+/* The pane is its own surface: a faint grey plane (--sidebar-background in theme.json, #f7f7f8) with a hairline
+   on its right edge; the chat area stays white. No shadows: plane + line only. */
+[data-sidebar="sidebar"] { border-right: 1px solid var(--c-line); }
+#thread-history [data-sidebar="menu-button"] { color: var(--c-slate); border: 1px solid transparent; }
+#thread-history [data-sidebar="menu-button"]:hover { background: var(--c-ash); color: var(--c-carbon); }
+/* The open chat looks lifted: white with a hairline, like the cards in the chat */
+#thread-history [data-sidebar="menu-button"][data-active="true"] {
+  background: var(--c-white); border-color: var(--c-line); color: var(--c-carbon); font-weight: 500;
+}
+
 /* ------------------------------------------------------------------ loading lines */
 /* Progress messages ("Thinking...", "Searching Qdrant...") get data-loading from public/custom.js:
    three typing dots on the left and a shimmer over the text (prompt-kit Loader: typing + text-shimmer). */
@@ -228,3 +238,99 @@ body { font-family: var(--f-body); -webkit-font-smoothing: antialiased; backgrou
 
 /* Greeting and start-up message: no avatar (custom.js sets data-no-avatar); hidden, so the text stays aligned */
 .ai-message[data-no-avatar] > :first-child { visibility: hidden; }
+
+/* ------------------------------------------------------------------ login page (public/custom.js section 11) */
+/* Top left: horizontal lockup (ring + name) instead of Chainlit's logo image */
+html[data-auth-page] img.logo { display: none !important; }
+#brand-lockup { display: inline-flex; align-items: center; gap: 10px; }
+#brand-lockup svg { width: 28px; height: 28px; flex: none; }
+#brand-lockup .brand-name {
+  font-family: var(--f-label); font-size: 13px; font-weight: 500; letter-spacing: 0.073em;
+  text-transform: uppercase; color: var(--c-slate);
+}
+
+/* Form title: one line of what the app does, only when the right-hand panel is hidden (Chainlit shows it
+   from 1024px, Tailwind "lg") */
+#login-tagline { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--c-slate); }
+@media (min-width: 1024px) { #login-tagline { display: none; } }
+
+/* Right-hand panel: white, the ASCII animation filling it, the pitch in the lower left */
+#login-panel { background: var(--c-white) !important; border-left: 1px solid var(--c-line); }
+#login-panel > img { display: none !important; }
+#login-art { position: absolute; inset: 0; }
+#login-pitch {
+  position: absolute; left: 40px; bottom: 40px; max-width: 440px; padding: 24px 28px;
+  background: rgba(255, 255, 255, 0.88); border: 1px solid var(--c-line); border-radius: 8px;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+#login-pitch h2 {
+  font-family: var(--f-head); font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--c-carbon); margin: 0 0 12px;
+}
+#login-pitch p { font-size: 15px; line-height: 1.6; color: var(--c-slate); margin: 0; }
+
+/* ------------------------------------------------------------------ start-up status (public/elements/Status.jsx) */
+.startup-status { font-size: 14px; line-height: 1.5; color: var(--c-carbon); max-width: 640px; }
+.startup-status .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.startup-status .ss-head, .startup-status summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.startup-status .ss-title { font-weight: 600; }
+.startup-status .ss-sub { color: var(--c-slate); }
+.startup-status .ss-sub::before { content: "·"; margin-right: 8px; color: var(--c-mist); }
+.startup-status .ss-icon { width: 16px; height: 16px; flex: none; }
+.startup-status .ss-done { color: var(--c-green); }
+.startup-status .ss-warn { color: #b45309; }
+.startup-status .ss-fail { color: #b91c1c; }
+.startup-status .ss-pending { color: var(--c-mist); }
+.startup-status .ss-spin { color: var(--c-blue); animation: ss-spin 0.9s linear infinite; }
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .startup-status .ss-spin { animation: none; } }
+
+/* While checking: a bordered card with the checklist and what to do meanwhile */
+.startup-status[data-state="checking"] { padding: 14px 16px; border: 1px solid var(--c-line); border-radius: 8px; }
+.startup-status .ss-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.startup-status .ss-steps li { display: flex; align-items: flex-start; gap: 8px; }
+.startup-status .ss-steps li .ss-icon { margin-top: 2px; }
+.startup-status .ss-steps li[data-state="pending"] .ss-label { color: var(--c-fog); }
+.startup-status .ss-step-text { display: flex; flex-wrap: wrap; column-gap: 4px; }
+.startup-status .ss-detail { color: var(--c-slate); }
+.startup-status .ss-tech { flex-basis: 100%; font-family: var(--font-mono); font-size: 12px; color: var(--c-fog); }
+.startup-status .ss-note { margin: 8px 0 0; font-size: 12px; color: var(--c-fog); }
+.startup-status .ss-hint { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--c-line); color: var(--c-slate); }
+
+/* Finished: one quiet line; "Details" folds the checklist (with model names) open */
+.startup-status details > summary { list-style: none; cursor: pointer; border-radius: 6px; padding: 2px 0; }
+.startup-status details > summary::-webkit-details-marker { display: none; }
+.startup-status details > summary:focus-visible { outline: 2px solid var(--c-blue); outline-offset: 2px; }
+.startup-status .ss-more {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; font-size: 13px; color: var(--c-slate);
+  text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--c-mist);
+}
+.startup-status details > summary:hover .ss-more { color: var(--c-carbon); text-decoration-color: var(--c-carbon); }
+.startup-status .ss-chevron { width: 14px; height: 14px; transition: transform 0.15s; }
+.startup-status details[open] .ss-chevron { transform: rotate(90deg); }
+.startup-status details[open] > .ss-steps { margin: 8px 0 0 24px; }
+/* A limit or a failure: the line gets a tinted card so it is not read as "all good" */
+.startup-status[data-state="limited"] details, .startup-status[data-state="failed"] details {
+  padding: 10px 14px; border-radius: 8px; border: 1px solid;
+}
+.startup-status[data-state="limited"] details { background: #fffbeb; border-color: #fde68a; }
+.startup-status[data-state="failed"] details { background: #fef2f2; border-color: #fecaca; }
+.startup-status .ss-retry {
+  display: inline-flex; align-items: center; gap: 6px; margin: 10px 0 0 24px; padding: 6px 12px;
+  border: 1px solid var(--c-carbon); border-radius: 8px; background: var(--c-white); cursor: pointer; font-size: 14px;
+}
+
+/* ------------------------------------------------------------------ top bar on small screens */
+/* The page's own top-bar controls (public/custom.js) get shorter labels on phones, so Chainlit's Readme and
+   account buttons stay on screen: "Newest first" -> "Newest", "Settings" -> the gear, "Reading list" -> the
+   icon and its count. */
+.hdr-short { display: none; }
+@media (max-width: 640px) {
+  .hdr-label { display: none; }
+  .hdr-short { display: inline; }
+  #settings-button, #reading-list-button { margin-right: 4px !important; }
+  /* Chainlit's "Readme" button becomes a round "?" (same dialog) */
+  #readme-button { font-size: 0 !important; width: 28px; height: 28px; padding: 0 !important;
+                   border: 1px solid hsl(var(--border)); border-radius: 9999px; }
+  #readme-button::before { content: "?"; font: 600 14px var(--f-label); }
+}
