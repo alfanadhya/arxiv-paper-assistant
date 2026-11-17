@@ -3,7 +3,7 @@
   1. length   : length_problem: the whole message as typed is at most MAX_PROMPT_WORDS words (every mode).
   2. symbols  : on the whole message, collapse_repeats turns runs of the same symbol into one, then
                 remove_symbols keeps letters, digits and = , - : . ; ? ' & and turns other symbols into spaces.
-  3. keys     : parse_message reads the mode keys search= / title= / analyze= (also analyse=) and the metadata
+  3. keys     : parse_message reads the mode keys search= / title= and the metadata
                 keys year= / author= in one go; each value runs to the next key. A mode key switches the chat's
                 mode, which is remembered for the next messages until another mode key is typed.
 """
@@ -11,8 +11,8 @@
 import re
 from dataclasses import dataclass, field
 
-MESSAGE_KEY_RE = re.compile(r"(?<![\w=])(search|title|analy[sz]e|year|author)\s*=\s*", re.IGNORECASE)
-MODES = ("search", "title", "analyze")   # mode keys; the last one used is remembered for the chat
+MESSAGE_KEY_RE = re.compile(r"(?<![\w=])(search|title|year|author)\s*=\s*", re.IGNORECASE)
+MODES = ("search", "title")   # mode keys; the last one used is remembered for the chat
 YEAR_VALUE_RE = re.compile(r"^\s*(\d{4})?\s*(-)?\s*(\d{4})?\s*$")
 AUTHOR_SPLIT_RE = re.compile(r";|,|&|\band\b", re.IGNORECASE)
 # Cleaning of the whole message (after the length check, before the keys are read), in two steps:
@@ -26,16 +26,15 @@ SYMBOL_RE = re.compile(r"[^\w\s=,\-:.;?'&]|_")
 REPEATED_SYMBOL_RE = re.compile(r"([^\w\s])(?:\s*\1)+")
 SEARCH_EXAMPLE = "'search= graph neural networks for drug discovery year=2020-'"
 TITLE_EXAMPLE = "'title= Attention is all you need'"
-ANALYZE_EXAMPLE = "'analyze= compare 1 and 2'"
-MODE_EXAMPLES = {"search": SEARCH_EXAMPLE, "title": TITLE_EXAMPLE, "analyze": ANALYZE_EXAMPLE}
-MAX_PROMPT_WORDS = 200   # first input check: longer messages are not processed; the user is asked to shorten
+MODE_EXAMPLES = {"search": SEARCH_EXAMPLE, "title": TITLE_EXAMPLE}
+MAX_PROMPT_WORDS = 180  # first input check: longer messages are not processed; the user is asked to shorten
 
 
 # Result of the simple key parser (parse_message): mode, topic/title text and the metadata keys.
 @dataclass
 class ParsedMessage:
-    mode: str = "chat"                       # "search", "title", "analyze", or "chat" (no key, no remembered mode)
-    text: str = ""                           # the search= / title= / analyze= value (whole message for chat)
+    mode: str = "chat"                       # "search", "title", or "chat" (no key, no remembered mode)
+    text: str = ""                           # the search= / title= value (whole message for chat)
     from_memory: bool = False                # no mode key in the message: the chat's remembered mode is used
     mode_key: str | None = None              # the one valid mode key typed (the chat switches to it), else None
     authors: list[str] = field(default_factory=list)   # from author=
@@ -83,8 +82,8 @@ def count_words(text: str) -> int:
     return sum(1 for w in (text or "").split() if re.search(r"[^\W_]", w))
 
 
-# Step 1 of the input checks, the key parser (no model call): finds the mode keys search= / title= /
-# analyze= (also 'analyse=') and the metadata keys year= / author= anywhere in the message; each value runs
+# Step 1 of the input checks, the key parser (no model call): finds the mode keys search= / title=
+# and the metadata keys year= / author= anywhere in the message; each value runs
 # to the next key. A mode key switches the chat's mode; without one, `current_mode` (the mode remembered
 # from an earlier message) is used and the text before any metadata key is its value. No key and no
 # remembered mode -> chat. Problems (no or several modes, a key twice, an empty value, a bad year, an empty
@@ -103,7 +102,7 @@ def parse_message(message: str, current_mode: str | None = None) -> ParsedMessag
     values: dict[str, list[str]] = {}
     for i, m in enumerate(keys):                   # a value runs to the next key (or the end)
         end = keys[i + 1].start() if i + 1 < len(keys) else len(text)
-        key = m.group(1).lower().replace("analyse", "analyze")
+        key = m.group(1).lower()
         value = " ".join(text[m.end():end].split()).strip(" ,;")
         values.setdefault(key, []).append(value)
         if key in ("year", "author") and value:
@@ -112,8 +111,8 @@ def parse_message(message: str, current_mode: str | None = None) -> ParsedMessag
     modes = [k for k in MODES if k in values]
     if len(modes) > 1 or (modes and len(values[modes[0]]) > 1):
         p.mode, p.text = modes[0], ""
-        p.errors.append("Use only one of search=, title= or analyze= per message, once: search= for a topic, "
-                        "title= for one paper by its exact title, analyze= for a question about the papers shown.")
+        p.errors.append("Use only one of search= or title= per message, once: search= for a topic, "
+                        "title= for one paper by its exact title.")
         return p
     if modes:                                      # a mode key: switch to it
         p.mode, p.text, p.mode_key = modes[0], values[modes[0]][0], modes[0]
@@ -124,12 +123,12 @@ def parse_message(message: str, current_mode: str | None = None) -> ParsedMessag
         p.notes.append(f"[query] No mode key: using the remembered mode {current_mode}=.")
     else:
         p.mode, p.text = "search", ""
-        p.errors.append("Add search=<topic>, title=<paper title> or analyze=<question> to your message, "
+        p.errors.append("Add search=<topic> or title=<paper title> to your message, "
                         f"e.g. {SEARCH_EXAMPLE}.")
         return p
     if not p.text:
         p.errors.append(f"Type something after {p.mode}=, e.g. {MODE_EXAMPLES[p.mode]}." if not p.from_memory
-                        else f"Type your {'question' if p.mode == 'analyze' else 'text'} (still in {p.mode}= "
+                        else f"Type your text (still in {p.mode}= "
                              f"mode), e.g. {MODE_EXAMPLES[p.mode]}.")
 
     years = values.get("year", [])
@@ -155,9 +154,6 @@ def parse_message(message: str, current_mode: str | None = None) -> ParsedMessag
         for n in names:
             if n.lower() not in (a.lower() for a in p.authors):
                 p.authors.append(n)
-    if p.mode == "analyze" and (p.authors or years):
-        p.notes.append("[query] year=/author= are ignored with analyze= (it only uses papers already shown).")
-        p.authors, p.year, p.year_from, p.year_to, p.meta_keys = [], None, None, None, []
     return p
 
 

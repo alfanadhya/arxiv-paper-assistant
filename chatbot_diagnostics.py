@@ -79,12 +79,23 @@ class CandidateRank:
     picked_by: str | None = None       # "llm" or "fallback"
     year: int | None = None            # publication year (from the Qdrant metadata already returned)
     title_sim: float | None = None     # title similarity to the typed title (title lookups only)
+    authors: str = ""                  # first TRACE_AUTHORS authors (+ "et al."), from the Qdrant metadata
+
+
+TRACE_AUTHORS = 3   # authors named per rank-trace row; longer lists end in "et al."
 
 
 # Publication year from a hit's metadata, or None.
 def hit_year(hit) -> int | None:
     year = (getattr(hit, "metadata", None) or {}).get("year")
     return year if isinstance(year, int) else None
+
+
+# Short author list of a hit for the rank trace ('A; B; C et al.'); metadata stores a list or 'A; B'.
+def hit_authors(hit) -> str:
+    authors = (getattr(hit, "metadata", None) or {}).get("authors") or []
+    names = authors.split("; ") if isinstance(authors, str) else [str(a) for a in authors]
+    return "; ".join(names[:TRACE_AUTHORS]) + (" et al." if len(names) > TRACE_AUTHORS else "")
 
 
 # Diagnostic buffer: queries at each stage, tagged messages and the candidate rank trace.
@@ -97,6 +108,7 @@ class Diagnostics:
     messages: list[str] = field(default_factory=list)          # tagged lines
     candidates: list[CandidateRank] = field(default_factory=list)   # rank trace
     context_usage: list[dict] = field(default_factory=list)    # token usage per LLM call (stage, prompt, output)
+    begun: bool = False                                        # begin_search wrote the [mode] / parser lines
 
     # Diagnostics for a direct-chat message (no database search).
     @classmethod
@@ -106,15 +118,23 @@ class Diagnostics:
                  "(add search=<topic> or title=<paper title> to search the papers).")
         return d
 
-    # Wrap up a search: the mode key (search= / title=) and the parser's notes first, context usage last.
-    def finish_search(self, query: str, num_ctx: int, keyword: str = "search",
-                      parser_notes: list[str] | None = None) -> None:
+    # Start of a search: the mode key (search= / title=) and the parser's notes go first. Called before the
+    # route runs, so the lines are in the order things happen (the GUI shows the buffer while it fills).
+    def begin_search(self, query: str, keyword: str = "search", parser_notes: list[str] | None = None) -> None:
         if keyword == "agent":   # same shape as the search route: [mode] first, parser notes, [context] last
             head = f"[mode] Agent answer requested (no search= / title= key) -> '{query}'."
         else:
-            what = {"title": "Exact-title lookup", "analyze": "Question about shown papers"}.get(keyword, "Search")
+            what = "Exact-title lookup" if keyword == "title" else "Search"
             head = f"[mode] {what} requested with {keyword}= -> '{query}'."
         self.messages[:0] = [head] + list(parser_notes or [])
+        self.begun = True
+
+    # Wrap up a search: context usage last. A buffer that was not begun (a route that made its own) gets its
+    # [mode] and parser lines put in front here.
+    def finish_search(self, query: str, num_ctx: int, keyword: str = "search",
+                      parser_notes: list[str] | None = None) -> None:
+        if not self.begun:
+            self.begin_search(query, keyword, parser_notes)
         self.messages.extend(self.context_messages(num_ctx))
 
     # Add one message.
@@ -150,7 +170,7 @@ class Diagnostics:
                 chunk_id=h.point_id, arxiv_id=h.arxiv_id, title=h.title, pool=pool, search=search,
                 search_rank=search_rank, rrf_score=round(float(getattr(h, "vector_score", 0.0)), 4),
                 dense_rank=getattr(h, "dense_rank", None), sparse_rank=getattr(h, "sparse_rank", None),
-                initial_rank=i, year=hit_year(h)))
+                initial_rank=i, year=hit_year(h), authors=hit_authors(h)))
 
     # Candidate record for a chunk id (None if not tracked).
     def candidate(self, chunk_id: str) -> CandidateRank | None:
@@ -222,7 +242,7 @@ class Diagnostics:
                 dense_rank=h.dense_rank, sparse_rank=h.sparse_rank, initial_rank=qpos.get(h.arxiv_id, 0),
                 rerank_rank=i, rerank_score=round(float(s), 4),
                 llm_label=str(returned_ids.index(h.arxiv_id) + 1) if h.arxiv_id in returned_ids else None,
-                year=hit_year(h)))
+                year=hit_year(h), authors=hit_authors(h)))
 
     # Agent answer: mark the cited papers with their card number (first row of each paper).
     def track_agent_citations(self, cited_ids: list[str]) -> None:
@@ -265,7 +285,8 @@ class Diagnostics:
                 llm = f"{c.picked_by} pick {c.llm_rank}" if c.llm_rank else "not picked"
             shown = f"shown {c.final_rank}" if c.final_rank else "not shown"
             lines.append(f"[{c.pool}] qdrant {c.initial_rank} ({c.search} search #{c.search_rank}) -> {rerank} "
-                         f"-> {sent} -> {llm} -> {shown} | {c.year or '----'} | "
+                         f"-> {sent} -> {llm} -> {shown} | {c.arxiv_id} | {c.year or '----'} | "
+                         + (f"{c.authors} | " if c.authors else "")
                          + (f"title sim {c.title_sim:.2f} | " if c.title_sim is not None else "")
                          + f"{c.title[:70]}")
         return lines

@@ -308,6 +308,6 @@ Export format for RAGAS (§54): `user_input` = `request.query`, `retrieved_conte
 - [ ] Decide how deployment changes the index (e.g. quantization), and evaluate that deployed configuration.
 - [x] Backend trace code received (RAG-part merge, 2026-11-12). Runner `eval/run_eval.py` and scorer `eval/score.py` written; see `eval/RUNNING.md`.
 - [ ] **Gate:** search mode has no gate score. It abstains only when nothing is found, so G2 is not applicable, and `no_evidence`/`adversarial` cases are expected to fail A5. G1 uses "answered = papers shown".
-- [ ] **H2 / C1–C4:** search mode writes no cited summary, only the picked papers plus `why_best`/`criteria`. Decide whether attribution is audited on that text or only in `analyze=` mode.
+- [ ] **H2 / C1–C4:** search mode writes no cited summary, only the picked papers plus `why_best`/`criteria`. Decide whether attribution is audited on that text or only on agent answers.
 - [ ] **Input:** years and authors are read only from `year=`/`author=` keys. The runner's default `--input keyed` adds them from the case scope; `--input plain` measures natural-language requests without keys.
 - [ ] Teammate review of this protocol, then freeze v1.0 **before** the first run.

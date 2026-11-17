@@ -327,6 +327,171 @@
   colour();
 })();
 
+// 8. Resizable left pane (the chat list). Chainlit gives it a fixed width through the CSS variable
+//    --sidebar-width, which the pane, the space it reserves and so the chat area next to it all use. A thin
+//    handle on the pane's right edge changes that variable while dragged; everything inside follows (chat
+//    titles are cut with "..." by Chainlit, so a wider pane shows more of them). The width is remembered in
+//    this browser; a double-click on the handle goes back to Chainlit's width.
+(function () {
+  const KEY = "left-pane-width";
+  const MIN = 180, MAX = 640;
+  let original = null;   // Chainlit's own value, for the double-click reset
+  let dragging = false;
+
+  // The element that defines --sidebar-width (Chainlit's sidebar wrapper).
+  function wrapper() {
+    return document.querySelector('[style*="--sidebar-width"]');
+  }
+
+  // The visible pane: the outermost box inside the wrapper that holds the chat list.
+  function pane() {
+    const list = document.getElementById("thread-history");
+    if (!list) return null;
+    return list.closest('[data-sidebar="sidebar"]') || list.closest('[data-side="left"]') || list.parentElement;
+  }
+
+  function saved() {
+    try {
+      const n = parseInt(localStorage.getItem(KEY) || "", 10);
+      return n >= MIN && n <= MAX ? n : null;
+    } catch (e) { return null; }
+  }
+
+  function apply(px) {
+    const w = wrapper();
+    if (!w) return;
+    if (original === null) original = w.style.getPropertyValue("--sidebar-width");
+    const value = px + "px";
+    if (w.style.getPropertyValue("--sidebar-width") !== value) w.style.setProperty("--sidebar-width", value);
+  }
+
+  const handle = document.createElement("div");
+  handle.id = "left-pane-resizer";
+  handle.title = "Drag to resize the chat list (double-click to reset)";
+  handle.style.cssText =
+    "position:fixed;top:0;bottom:0;width:8px;cursor:col-resize;z-index:2147482000;display:none;" +
+    "background:transparent;transition:background .15s;touch-action:none;";
+  handle.addEventListener("mouseenter", () => (handle.style.background = "hsl(var(--primary, 340 92% 52%) / .35)"));
+  handle.addEventListener("mouseleave", () => { if (!dragging) handle.style.background = "transparent"; });
+
+  // No width animation and no text selection while dragging (the pane animates its width when it opens)
+  const style = document.createElement("style");
+  style.textContent =
+    "html[data-resizing-left-pane] [style*='--sidebar-width'], " +
+    "html[data-resizing-left-pane] [style*='--sidebar-width'] * { transition: none !important; } " +
+    "html[data-resizing-left-pane] { user-select: none !important; cursor: col-resize !important; }";
+  document.head.appendChild(style);
+
+  // Put the handle on the pane's right edge; hide it when the pane is closed or not on screen.
+  function place() {
+    if (!handle.isConnected && document.body) document.body.appendChild(handle);
+    const width = saved();
+    if (width !== null && !dragging) apply(width);   // also after Chainlit re-renders the wrapper
+    const p = pane();
+    const box = p && p.getBoundingClientRect();
+    if (!box || box.width < 40 || box.right <= 0 || window.innerWidth < 768) {
+      handle.style.display = "none";
+      return;
+    }
+    handle.style.display = "block";
+    handle.style.left = Math.round(box.right - 4) + "px";
+  }
+
+  handle.addEventListener("pointerdown", (e) => {
+    const p = pane();
+    if (!p) return;
+    e.preventDefault();
+    dragging = true;
+    handle.setPointerCapture(e.pointerId);
+    document.documentElement.setAttribute("data-resizing-left-pane", "1");
+    const left = p.getBoundingClientRect().left;
+    const move = (ev) => {
+      const px = Math.max(MIN, Math.min(MAX, Math.round(ev.clientX - left)));
+      apply(px);
+      handle.style.left = Math.round(left + px - 4) + "px";
+      handle.dataset.width = String(px);
+    };
+    const stop = () => {
+      dragging = false;
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+      document.documentElement.removeAttribute("data-resizing-left-pane");
+      handle.style.background = "transparent";
+      try { if (handle.dataset.width) localStorage.setItem(KEY, handle.dataset.width); } catch (err) { /* private mode */ }
+      place();
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  });
+
+  handle.addEventListener("dblclick", () => {
+    try { localStorage.removeItem(KEY); } catch (err) { /* private mode */ }
+    delete handle.dataset.width;
+    const w = wrapper();
+    if (w && original) w.style.setProperty("--sidebar-width", original);
+    setTimeout(place, 300);
+  });
+
+  let timer = null;
+  function later() {   // the pane slides open/closed in about 0.2 s: place the handle again after that
+    place();
+    clearTimeout(timer);
+    timer = setTimeout(place, 300);
+  }
+  new MutationObserver(() => { if (!dragging) later(); })
+    .observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-state"] });
+  window.addEventListener("resize", later);
+  later();
+})();
+
+// 9. "⚙ Settings" button in the top bar. Chainlit only shows a small gear inside the message box for its chat
+//    settings (the "Reranker cutoff" slider, threeofus_main.send_settings); this button opens the same panel
+//    by clicking that gear (id 'chat-settings-open-modal').
+(function () {
+  const ID = "settings-button";
+
+  // The gear in the message box is hidden (the top-bar button replaces it); it stays in the page so that
+  // the click below still reaches it.
+  const style = document.createElement("style");
+  style.textContent = "#chat-settings-open-modal { display: none !important; }";
+  document.head.appendChild(style);
+
+  function rightGroup() {
+    const header = document.getElementById("header");
+    if (!header) return null;
+    return [...header.children].reverse().find((el) => el.classList.contains("gap-1")) || null;
+  }
+
+  function render() {
+    if (location.pathname.startsWith("/login") || location.pathname.startsWith("/signup")) return;
+    const right = rightGroup();
+    if (!right) return;   // top bar not rendered yet: the observer calls again
+    let btn = document.getElementById(ID);
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.id = ID;
+      btn.type = "button";
+      btn.textContent = "⚙ Settings";
+      btn.style.cssText =
+        "display:inline-flex;align-items:center;font-size:14px;cursor:pointer;white-space:nowrap;" +
+        "margin:0 8px;padding:4px 10px;border:1px solid hsl(var(--border, 0 0% 80%));border-radius:6px;" +
+        "background:transparent;color:inherit;";
+      btn.addEventListener("click", () => {
+        const gear = document.getElementById("chat-settings-open-modal");
+        if (gear) gear.click();
+        else btn.title = "Settings are not loaded yet: start a new chat or reload the page";
+      });
+    }
+    if (btn.parentElement !== right) right.prepend(btn);
+    btn.title = "Open the settings (reranker cutoff)";
+  }
+
+  new MutationObserver(render).observe(document.documentElement, { childList: true, subtree: true });
+  render();
+})();
+
 // 4. Login page: a "Create an account" link to /signup, and a note after a successful sign-up.
 (function () {
   function addSignupLink() {

@@ -27,7 +27,7 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
 
 | File | Role |
 |---|---|
-| `threeofus_main.py` | Pipeline (`run_turn`, `run_query`, `run_title_query`, `run_analyze`), prompts, LLM chains, Chainlit handlers, `/signup` and `/prefs/newest-first` routes |
+| `threeofus_main.py` | Pipeline (`run_turn`, `run_query`, `run_title_query`), prompts, LLM chains, Chainlit handlers, `/signup` and `/prefs/newest-first` routes |
 | `prompt_cleaning.py` | Input checks before any model call: `parse_message`, `length_problem`, `collapse_repeats`, `remove_symbols`, `ParsedMessage` |
 | `chatbot_diagnostics.py` | `Diagnostics` buffer (tagged notes, rank trace, context usage), `format_diagnostics`, the token-usage callback |
 | `retriever_hybrid_rrf.py` | Qdrant hybrid search (dense + BM25 with RRF) and `MetadataIntent` filters |
@@ -41,16 +41,16 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
 
 **Input checks** (`prompt_cleaning.py`, no model call until all pass):
 1. **Keys.**
-   - **Mode keys:** `search=`, `title=`, `analyze=` (also `analyse=`). A mode key switches the chat's mode, which stays on until another mode key is typed. A message without a mode key uses the remembered mode, and its text before any metadata key is the value.
-   - **Metadata keys:** `year=` (`2021`, `2019-2022`, `2019-`, `-2020`) and `author=` (`A; B`, or repeat the key). They apply to one message only, are the **only** source of years and authors, and are ignored by `analyze=`.
+   - **Mode keys:** `search=`, `title=`. A mode key switches the chat's mode, which stays on until another mode key is typed. A message without a mode key uses the remembered mode, and its text before any metadata key is the value.
+   - **Metadata keys:** `year=` (`2021`, `2019-2022`, `2019-`, `-2020`) and `author=` (`A; B`, or repeat the key). They apply to one message only and are the **only** source of years and authors.
    - **Errors stop the turn:** several mode keys, a key used twice, an empty value, a bad year, an empty author.
-2. **Length (runs first, before the keys):** the whole message is at most `MAX_PROMPT_WORDS` (200) words in every mode; only words with a letter or digit count. A message over the limit is not processed at all, so a mode key in it doesn't switch the mode.
+2. **Length (runs first, before the keys):** the whole message is at most `MAX_PROMPT_WORDS` (180) words in every mode; only words with a letter or digit count. A message over the limit is not processed at all, so a mode key in it doesn't switch the mode.
 3. **Collapse:** repeated spaces, and runs of the same symbol (`...`, `???`, `;;`), become one.
 4. **Symbols:** letters, digits and `, - : . ; ? '` are kept, other symbols become spaces. Text with no letter or digit left is rejected.
 
 **Modes:**
 - **New chats start in search mode.** `app.set_mode` saves the mode in the session and sends it to the banner.
-- **A reopened chat keeps its mode.** Chats saved before modes existed get analyze if they have papers, else search.
+- **A reopened chat keeps its mode.**
 - **No mode at all** (only possible for those old chats) shows the fixed syntax reminder (`command_reminder`). `CHAT_WITH_LLM = False`, so there's no free chat with the model; `chat_reply` is kept for later.
 
 ## Search (`run_query`)
@@ -84,18 +84,6 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
 - **Bonuses:** author and year only add small bonuses (`TITLE_AUTHOR_BONUS`, `TITLE_YEAR_BONUS`) and never filter. The year allows ±1, because the arXiv year often differs from the venue year.
 - **Result:** one paper, with no LLM ranking. A non-exact match comes with a warning.
 
-## Analyze (`run_analyze`)
-
-- **What it can refer to:** after each successful search or title lookup, the handler stores the result's labels and arXiv ids in `last_results` (`app.set_last_results`).
-- **Resolving references** (`resolve_paper_refs`, in code):
-  - `1`, `[2]`, `S1` or `[S3]` are labels of the last result.
-  - An arXiv id can be any paper in `papers_by_id`.
-  - No label: a singular reference (`SINGULAR_REF_RE`: "this paper", "it", "the best one") means the best match (`last_best`, the LLM's top pick). Anything else, or no known best match, asks the user for a label, with no LLM call. At most `ANALYZE_MAX_PAPERS` (8) papers go to the model.
-  - An unknown label stops with a list of the available ones.
-  - A plain number always counts as a label: "top 3 ideas" means paper 3.
-- **The LLM call:** one call (`ANALYZE_PROMPT`, reasoning on, capped at `ANALYZE_MAX_TOKENS`) with the papers' title, authors, year and abstract. It is told to answer only from those, cite labels, and not repeat titles.
-- **Output:** the answer streams to the GUI. The papers used aren't printed; they go into the conversation memory (`memory_note`) and the `[analyze]` diagnostics line.
-
 ## LLM calls and LangChain
 
 - **One Ollama model** for every call (`ollama_llm`), with the same `NUM_CTX` and `OLLAMA_KEEP_ALIVE`, so Ollama never reloads it between steps.
@@ -103,12 +91,12 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
 - **Structured outputs:** `QueryAnalysis`, `PoolRanking` (`include_raw=True` keeps the thinking), `RewriteResult`. Free-text answers use `StrOutputParser` so they can stream.
 - **Memory is our own:** the last `MAX_HISTORY_TURNS` (10) pairs in `cl.user_session["history"]`, passed in through `MessagesPlaceholder("history")`. `assistant_turn_text` decides what a turn stores:
   - search: labels, ids and titles
-  - analyze: papers used + the answer, truncated to 2000 characters
+  - agent: papers cited + the answer, truncated to 2000 characters
 - **Token usage:** the `ContextUsageHandler` callback records every call for the `[context]` lines.
 
 ## Diagnostics
 
-- **Tagged lines**, in order: `[mode]`, `[query]` (parser and cleaning steps), `[analysis]`, `[validation]`, `[memory]`, `[rerank]`, `[ranking]`, `[analyze]`, `[context]`.
+- **Tagged lines**, in order: `[mode]`, `[query]` (parser and cleaning steps), `[analysis]`, `[validation]`, `[memory]`, `[rerank]`, `[ranking]`, `[context]`.
 - **Rank trace:** one row per candidate, with Qdrant position, reranker rank and score, the label sent to the LLM, the LLM pick, and the displayed position.
 - **Saved with the chat:** the panel data is stored in the diagnostics message's metadata. A plain-text digest is also printed to the console.
 

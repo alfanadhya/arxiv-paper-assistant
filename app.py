@@ -5,6 +5,7 @@ decorators (and the auto-login + data layer) and calls these functions.
 The sidebar needs public/elements/ReadingList.jsx; saved chats live in history.db (db.py).
 """
 
+import asyncio
 import json
 
 import chainlit as cl
@@ -14,11 +15,19 @@ import export
 MAX_HISTORY_TURNS = 10  # question/answer pairs kept for follow-up questions
 MAX_SHOWN_PAPERS = 100  # papers kept in papers_by_id (session is saved to the DB, capped at 1 MB)
 
-WELCOME = ("Hi! Ask in your own words: a research question (*how are GNNs used for drug discovery?*), an "
-           "author (*what has Iryna Gurevych published on fact checking?*) or a question about the papers shown "
-           "(*list all authors of 1 and 2*); the assistant searches the papers itself. For a plain ranked list "
-           "use **search=** (*search= RAG evaluation year=2020- author=Kipf; Welling*), and **title=** to find "
-           "one paper by its exact title. Click **☐ Select** under a paper to add it to your reading list.")
+WELCOME = """Hi! Ask me about arXiv papers.
+
+Ask in your own words, and the assistant searches the papers:
+- A research question: *How are GNNs used for drug discovery?*
+- An author: *What has Iryna Gurevych published on fact checking?*
+- After a search: *List all authors of 1 and 2*
+
+Commands for faster response:
+- **search=** {a general topic} \\[optional filters for year and author\\]
+  - *search= graph auto-encoders year=2016- author=Kipf; Welling*
+- **title=** *attention is all you need*
+
+Click **☐ Select** under a paper to add it to your reading list."""
 
 
 # ---------------------------------------------------------------- session state
@@ -40,6 +49,7 @@ def init_session() -> None:
     cl.user_session.set("history", [])        # conversation memory for follow-ups
     cl.user_session.set("sidebar_pinned", True)   # reading-list panel pinned by default
     cl.user_session.set("last_results", [])   # [[label, arxiv_id], ...] of the last result (labels for the agent)
+    cl.user_session.set("labels", {})         # arxiv_id -> the paper's number in this chat (never restarts)
 
 
 # After a resume, add any session keys that were not restored (keeps restored ones).
@@ -47,6 +57,12 @@ def ensure_session() -> None:
     for key, empty in (("reading_list", []), ("papers_by_id", {}), ("history", []), ("last_results", [])):
         if not isinstance(cl.user_session.get(key), type(empty)):
             cl.user_session.set(key, empty)
+    if not isinstance(cl.user_session.get("labels"), dict):
+        # chat saved before chat-wide numbers existed: its old cards keep their per-result numbers; count the
+        # papers it showed so that new numbers continue after them instead of starting at 1 again
+        shown = cl.user_session.get("papers_by_id") or {}
+        cl.user_session.set("labels", {aid: f"{'S' if str(p.get('label', '')).startswith('S') else ''}{i}"
+                                       for i, (aid, p) in enumerate(shown.items(), start=1)})
     cl.user_session.set("buttons", {})        # Action objects are never restored
 
 
@@ -92,6 +108,32 @@ def last_result_papers() -> list[dict]:
     return papers
 
 
+# The chat's arxiv_id -> number map (threeofus_main.session_label fills it): a paper gets its number when it is
+# first shown and keeps it, and every new result continues the count.
+def labels() -> dict[str, str]:
+    found = cl.user_session.get("labels")
+    if not isinstance(found, dict):
+        found = {}
+        cl.user_session.set("labels", found)
+    return found
+
+
+# Papers the agent is told about for this message: the last result, plus any older paper of the chat whose
+# number the message names ("compare 2 and 7"), so earlier results stay reachable by number.
+def papers_for_message(prompt: str) -> list[dict]:
+    import re
+    papers = last_result_papers()
+    listed = {p["arxiv_id"] for p in papers}
+    named = {t.upper() for t in re.findall(r"(?<![\w.])[sS]?\d{1,3}(?![\w.])", prompt or "")}
+    for arxiv_id, label in labels().items():
+        if arxiv_id in listed or label not in named and label.lstrip("S") not in named:
+            continue
+        paper = paper_by_id(arxiv_id)
+        if paper is not None:
+            papers.append({**paper, "label": label, "best": False})
+    return papers
+
+
 # ---------------------------------------------------------------- conversation memory
 # Conversation so far as [{"role", "content", "tags"}]; tags (set by code, see threeofus_main.memory_tags)
 # decide whether a turn is read in a later turn (threeofus_main.select_history strips them for LangChain).
@@ -116,11 +158,20 @@ def paper_year(hit) -> int:
     return year if isinstance(year, int) else 0
 
 
-# Hits picked by the model, in display order, with their labels ("3", "S2"); r is a SearchResponse.
+# Hits picked by the model, in display order, with their labels ("3", "S2"); r is a SearchResponse. The label
+# is the paper's number in this chat (r.labels); without that map it is the position in this result.
 def picked_hits(r) -> list[tuple[str, object]]:
-    papers = [(str(n), r.papers[n - 1]) for n in r.top_papers]
-    surveys = [(f"S{n}", r.surveys[n - 1]) for n in r.top_surveys]
+    known = getattr(r, "labels", None) or {}
+    papers = [(known.get(h.arxiv_id, str(n)), h) for n, h in ((n, r.papers[n - 1]) for n in r.top_papers)]
+    surveys = [(known.get(h.arxiv_id, f"S{n}"), h) for n, h in ((n, r.surveys[n - 1]) for n in r.top_surveys)]
     return papers + surveys
+
+
+# Label of the best match as shown on its card; None if there is no best match.
+def best_label(r) -> str | None:
+    if not r.best:
+        return None
+    return (getattr(r, "labels", None) or {}).get(r.best[1].arxiv_id, r.best[0])
 
 
 # 'Last, First[, Suffix]' -> 'First Last[ Suffix]' (BibTeX export needs the last name last).
@@ -172,7 +223,7 @@ def summary_md(r, filters_text: str) -> str:
     if r.criteria:
         lines.append("**Evaluation criteria:**\n" + "\n".join(f"- {c}" for c in r.criteria))
     if r.best:
-        lines.append(f"**Best match:** [{r.best[0]}] {r.best[1].title}\n\n_{r.why_best}_")
+        lines.append(f"**Best match:** {r.best[1].title}\n\n_{r.why_best}_")   # by title, no number
     if not picked_hits(r):
         lines.append("The model picked no papers from the results.")
     return "\n\n".join(lines)
@@ -305,10 +356,48 @@ def diagnostics_panel(data: dict, msg_id: str) -> cl.CustomElement:
 
 # Collapsible diagnostics panel (public/elements/Diagnostics.jsx) shown under the answer. The data is also
 # saved in the message's metadata (steps.metadata in history.db), so resume() can redraw it with the chat.
-async def send_diagnostics_panel(data: dict) -> None:
+# `replaces` = id of the live panel this one takes over from: it opens if that one was open (Diagnostics.jsx).
+async def send_diagnostics_panel(data: dict, replaces: str | None = None) -> None:
     msg = cl.Message(content="", author="diagnostics", metadata={"kind": "diagnostics", "diagnostics": data})
-    msg.elements = [diagnostics_panel(data, msg.id)]
+    msg.elements = [diagnostics_panel({**data, "replaces": replaces} if replaces else data, msg.id)]
     await msg.send()
+
+
+# Live diagnostics panel, sent as soon as a message arrives: empty at first, then filled by
+# watch_diagnostics() while the message is processed. It is not saved as diagnostics (kind 'diagnostics-live',
+# no data): remove_live_diagnostics() takes it away when the answer is shown and the finished panel follows.
+async def send_live_diagnostics() -> cl.Message:
+    msg = cl.Message(content="", author="diagnostics", metadata={"kind": "diagnostics-live"})
+    msg.elements = [diagnostics_panel({"mode": "search", "messages": [], "ranks": [], "live": True}, msg.id)]
+    await msg.send()
+    return msg
+
+
+# While a message is processed (in a worker thread), send the diagnostics buffer to its live panel whenever
+# it has changed. A window message, not an element update: the panel takes the data in place, without being
+# re-created and without a file written per update. Runs until cancelled.
+async def watch_diagnostics(diag, panel_id: str, every: float = 0.5) -> None:
+    last = None
+    while True:
+        await asyncio.sleep(every)
+        try:
+            data = diag.to_dict()   # the worker may be adding to it right now: skip this round if that clashes
+            key = json.dumps(data, sort_keys=True, default=str)
+        except Exception:
+            continue
+        if key != last:
+            last = key
+            await cl.send_window_message({"type": "diagnostics_live", "panel_id": panel_id, "data": data})
+
+
+# Take the live panel off the page (and out of the saved chat); never breaks the turn.
+async def remove_live_diagnostics(msg: cl.Message) -> None:
+    try:
+        for element in msg.elements or []:
+            await element.remove()
+        await msg.remove()
+    except Exception as exc:
+        print(f"[diagnostics] could not remove the live panel: {type(exc).__name__}: {exc}", flush=True)
 
 
 # Diagnostic digest as a plain-text message (kept; the GUI now uses send_diagnostics_panel).

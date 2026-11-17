@@ -126,7 +126,7 @@ def system_version(app, retriever, variant: str, mode_key: str = "none") -> dict
         "agent_enabled": getattr(app, "AGENT_ENABLED", False),
         "agent": {k: getattr(app, k, None) for k in ("AGENT_TEMPERATURE", "AGENT_SEED", "AGENT_MAX_STEPS",
                                                       "AGENT_MAX_TOKENS", "AGENT_CANDIDATES", "AGENT_RERANK_POOL",
-                                                      "AGENT_RERANK_CUTOFF")},
+                                                      "RERANK_CUTOFF")},
         "qdrant": {"url": app.QDRANT_URL, "collection": app.COLLECTION, "points_count": info.points_count,
                    "indexed_vectors_count": info.indexed_vectors_count, "status": str(info.status)},
         "embedding_model": {"id": rr.MODEL_ID, "revision": rr.MODEL_REVISION, "query_instruction": rr.QUERY_INSTRUCTION},

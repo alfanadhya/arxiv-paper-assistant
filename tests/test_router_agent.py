@@ -43,7 +43,6 @@ if part == "offline":
     try:
         cases = [
             ("how are GNNs used for drug discovery?", "agent", "how are GNNs used for drug discovery?"),
-            ("analyze= compare 1 and 2", "agent", "compare 1 and 2"),
             ("search= transformers title= attention", "agent", None),   # two keys: just text for the agent
             ("hello", "agent", "hello"),
             ("search= graph neural networks", "search", "graph neural networks"),

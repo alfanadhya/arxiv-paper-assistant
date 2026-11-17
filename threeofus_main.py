@@ -4,6 +4,8 @@ CLI:  python threeofus_main.py "your prompt"     |  python threeofus_main.py --c
 GUI:  chainlit run threeofus_main.py -w   (handlers here, GUI helpers in app.py)
 """
 
+import asyncio
+import contextvars
 import functools
 import json
 import os
@@ -50,6 +52,25 @@ MAX_PAPERS = 3           # research papers the model may pick
 EXTRA_CANDIDATES = 1     # (kept) old fixed extra; now chosen per query by fit_candidates()
 MAX_EXTRA_CANDIDATES = 2 # the LLM sees up to N+2 reranked candidates per pool (N = number it may pick) ...
 MIN_EXTRA_CANDIDATES = 1 # ... and at least N+1 when the context is too tight for N+2
+# Reranker score (0-1) below which a paper is always dropped, on every route. This is the default; in the GUI
+# each user sets their own value with the "Reranker cutoff" slider in the chat settings (within the range
+# below), and run_turn applies it to that message through rerank_cutoff().
+RERANK_CUTOFF = 0.7
+RERANK_CUTOFF_MIN, RERANK_CUTOFF_MAX = 0.6, 0.95
+_rerank_cutoff = contextvars.ContextVar("rerank_cutoff", default=RERANK_CUTOFF)
+
+
+# The cutoff in force for the message being answered (the user's slider value, else RERANK_CUTOFF).
+def rerank_cutoff() -> float:
+    return _rerank_cutoff.get()
+
+
+# A cutoff value from the GUI or the database as a number inside the allowed range; RERANK_CUTOFF if unusable.
+def clamp_cutoff(value) -> float:
+    try:
+        return round(min(max(float(value), RERANK_CUTOFF_MIN), RERANK_CUTOFF_MAX), 2)
+    except (TypeError, ValueError):
+        return RERANK_CUTOFF
 RANKING_OUTPUT_RESERVE = int(os.getenv("RANKING_OUTPUT_RESERVE", "3000"))   # tokens kept free for ranking output
 CHARS_PER_TOKEN = 3.5    # rough, conservative chars/token estimate for the context budget
 MAX_HISTORY_TURNS = 10   # question/answer pairs kept for follow-up questions
@@ -61,15 +82,16 @@ AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "4"))      # tool rounds befo
 AGENT_MAX_TOKENS = int(os.getenv("AGENT_MAX_TOKENS", "4096")) # generated-token cap per step (thinking + answer)
 # Candidates one search_papers call returns to the model (those at or above the reranker cutoff, best first).
 # Fixed by the system, not chosen by the model: it reads them all and decides itself which to cite.
-AGENT_CANDIDATES = int(os.getenv("AGENT_CANDIDATES", "8"))
+# Same N+2 rule as the search route (N = MAX_PAPERS), applied after the cutoff.
+AGENT_CANDIDATES = MAX_PAPERS + MAX_EXTRA_CANDIDATES
 AGENT_RERANK_POOL = 40     # Qdrant hits reranked per call
 # Agent sampling: 0 = greedy (most repeatable). Qwen3 advises against greedy decoding in thinking mode (possible
 # endless repetition); if answers come back empty or cut off, try AGENT_TEMPERATURE=0.2 in .env.
 AGENT_TEMPERATURE = float(os.getenv("AGENT_TEMPERATURE", "0"))
 AGENT_SEED = int(os.getenv("AGENT_SEED", "42"))
-# Reranker score (0-1, best of model query / user question) a paper needs to be returned to the model. 0.7 kept
-# 98% of the relevant papers among the top k in the dev runs of 2026-11-12 and dropped 18% of the others.
-AGENT_RERANK_CUTOFF = float(os.getenv("AGENT_RERANK_CUTOFF", "0.7"))
+# The agent's search uses the same reranker cutoff as every other route: rerank_cutoff() (best of model query /
+# user question). 0.7 kept 98% of the relevant papers among the top k in the dev runs of 2026-11-12 and dropped
+# 18% of the others.
 AGENT_ABSTRACT_CHARS = 700 # abstract length the model sees per paper in search results (get_paper: full)
 TITLE_EXACT = 0.95       # title similarity treated as an exact match; below it the user is told
                          # "exact title match not found; best available match"
@@ -253,7 +275,9 @@ class PoolRanking(BaseModel):
         description="Numbers of the best matching papers, best first, e.g. [4, 1, 7] (only the number, "
                     "e.g. 2 for [S2]), no more than the limit given in the instructions. "
                     "Empty list if none are relevant.")
-    why_best: str = Field(default="", description="One sentence explaining why your first pick is the best match")
+    why_best: str = Field(default="", description="One sentence explaining why your first pick is the best match. "
+                                                   "Call it 'this paper'; do not mention other papers or any "
+                                                   "paper number.")
 
 
 # Everything a GUI needs to display one query's result.
@@ -274,6 +298,8 @@ class SearchResponse:
     top_papers: list[int] = field(default_factory=list) # 1-based picks into papers (newest first if newest_first)
     top_surveys: list[int] = field(default_factory=list)# 1-based positions into surveys (newest first if newest_first)
     best: tuple[str, object] | None = None              # (label like "3" / "S2", hit)
+    # arXiv id -> the paper's number in this chat (GUI only, see session_label); empty = labels count per result
+    labels: dict[str, str] = field(default_factory=dict)
     active_mode: str | None = None                      # mode remembered for the chat after this turn (banner)
     request: str = ""                                   # the user's request with its year=/author= keys (LLM context)
     filters: str = "none"                               # metadata filters Qdrant used (describe_filters), LLM context
@@ -648,29 +674,14 @@ def memory_tags(r: SearchResponse) -> dict:
 
 
 # Earlier turns to put in the model's context, without their tags (LangChain format). Failed turns are
-# skipped. With `paper_ids` (an analyze= call): only turns about at least one of those papers, plus the latest
-# search/title result (so the model knows which list the labels come from). Turns saved before tags existed
-# count as ok and relevant. Returns (history, [memory] diagnostic line).
-def select_history(history: list[dict] | None, paper_ids: set[str] | None = None) -> tuple[list[dict], str]:
+# skipped. Turns saved before tags existed count as ok. Returns (history, [memory] diagnostic line).
+def select_history(history: list[dict] | None) -> tuple[list[dict], str]:
     entries = history or []
     pairs = [entries[i:i + 2] for i in range(0, len(entries) - 1, 2)]
-    tags_of = lambda pair: pair[-1].get("tags") or {}
-    last_result = max((i for i, p in enumerate(pairs) if tags_of(p).get("mode") in ("search", "title")
-                       and tags_of(p).get("ok", True)), default=None)
-    kept, failed, other = [], 0, 0
-    for i, pair in enumerate(pairs):
-        tags = tags_of(pair)
-        if not tags.get("ok", True):
-            failed += 1
-            continue
-        known = tags.get("papers")
-        if paper_ids is not None and i != last_result and known is not None and not set(known) & paper_ids:
-            other += 1
-            continue
-        kept.append(pair)
+    kept = [pair for pair in pairs if (pair[-1].get("tags") or {}).get("ok", True)]
+    failed = len(pairs) - len(kept)
     note = (f"[memory] Context reads {len(kept)} of {len(pairs)} earlier turn(s)"
-            + (f"; skipped {failed} failed" if failed else "")
-            + (f"; skipped {other} about other papers" if other else "") + ".")
+            + (f"; skipped {failed} failed" if failed else "") + ".")
     return [{"role": e["role"], "content": e["content"]} for pair in kept for e in pair], note
 
 
@@ -683,8 +694,11 @@ def assistant_turn_text(r: SearchResponse) -> str:
         return "No results: " + " ".join(r.errors)
     topic = r.analysis.corrected_query if r.analysis else r.search_prompt
     lines = [f"Papers for '{topic}':"]
-    lines += [f"[{n}] [{r.papers[n - 1].arxiv_id}] {r.papers[n - 1].title}" for n in r.top_papers]
-    lines += [f"[S{n}] [{r.surveys[n - 1].arxiv_id}] {r.surveys[n - 1].title}" for n in r.top_surveys]
+    # with the chat's label map: the numbers on the cards, so the history and the screen agree
+    lines += [f"[{r.labels.get(h.arxiv_id, n)}] [{h.arxiv_id}] {h.title}"
+              for n, h in ((n, r.papers[n - 1]) for n in r.top_papers)]
+    lines += [f"[{r.labels.get(h.arxiv_id, f'S{n}')}] [{h.arxiv_id}] {h.title}"
+              for n, h in ((n, r.surveys[n - 1]) for n in r.top_surveys)]
     return "\n".join(lines)
 
 
@@ -847,6 +861,15 @@ def analyze_query(prompt: str, title_mode: bool = False,
 # True if the hit's title contains 'survey'.
 def is_survey(hit) -> bool:
     return "survey" in hit.title.lower()
+
+
+# The paper's number in this chat ("4", or "S4" for a survey). It is given once, when the paper is first shown,
+# and never changes or restarts: a later result continues the count and a paper shown again keeps its number.
+# `labels` (arXiv id -> label) is the chat's map; it is extended in place.
+def session_label(labels: dict[str, str], hit) -> str:
+    if hit.arxiv_id not in labels:
+        labels[hit.arxiv_id] = f"{'S' if is_survey(hit) else ''}{len(labels) + 1}"
+    return labels[hit.arxiv_id]
 
 
 # Publication year from metadata; 0 if missing.
@@ -1030,7 +1053,7 @@ def search_papers(a: QueryAnalysis, survey_focus: bool, log: LogFn,
 
 
 # Rerank hits against two texts (the model's search query and the user's question) in one reranker call; each
-# hit keeps its better score (0-1). Unlike rerank_hits, a single hit is scored too (the agent's cutoff needs it).
+# hit keeps its better score (0-1).
 def rerank_two(query: str, question: str, hits: list) -> tuple[list, list[float]]:
     if not hits:
         return [], []
@@ -1044,10 +1067,11 @@ def rerank_two(query: str, question: str, hits: list) -> tuple[list, list[float]
     return [hits[i] for i in order], [best[i] for i in order]
 
 
-# Re-order hits with the cross-encoder (query, title + abstract); returns (hits best first, scores).
+# Re-order hits with the cross-encoder (query, title + abstract); returns (hits best first, scores). A single
+# hit is scored too (the cutoff needs its score).
 def rerank_hits(query: str, hits: list) -> tuple[list, list[float]]:
-    if len(hits) < 2:
-        return list(hits), [0.0] * len(hits)
+    if not hits:
+        return [], []
     reranker = get_reranker()
     with _reranker_lock:
         scores = reranker.predict([(query, h.text) for h in hits], batch_size=32, show_progress_bar=False)
@@ -1073,6 +1097,13 @@ def rerank_full(response: SearchResponse, query: str, pool: list, pool_name: str
         response.diagnostics.append(f"[rerank] FAILED for {pool_name}s ({type(exc).__name__}: {exc}); "
                                     "kept Qdrant order.")
         return list(pool), None
+
+
+# Reranked hits at or above RERANK_CUTOFF (all of them if the reranker failed: there are no scores to cut on).
+def above_cutoff(ranked: list, scores: list | None) -> list:
+    if scores is None:
+        return list(ranked)
+    return [h for h, s in zip(ranked, scores) if s >= rerank_cutoff()]
 
 
 # Rough token count of text (no tokenizer call; ~CHARS_PER_TOKEN characters per token, on the safe side).
@@ -1224,8 +1255,10 @@ def rank_papers(response: SearchResponse, topic: str, log: LogFn = lambda msg: N
 # Full pipeline for one prompt; GUI entry point (no prints/exits beyond log).
 def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
               history: list[dict] | None = None, newest_first: bool = False,
-              meta: ParsedMessage | None = None) -> SearchResponse:
+              meta: ParsedMessage | None = None, diagnostics: Diagnostics | None = None) -> SearchResponse:
     response = SearchResponse(prompt=prompt, search_prompt=prompt, newest_first=newest_first)
+    if diagnostics is not None:   # the caller's buffer (shown live in the GUI)
+        response.diagnostics = diagnostics
     response.diagnostics.original_prompt = prompt
     start_context_tracking(response.diagnostics)   # LLM calls below report their token usage
     try:
@@ -1298,13 +1331,24 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
     log("Reranking candidates...")
     papers_ranked, paper_scores = rerank_full(response, a.corrected_query, paper_pool, "paper")
     surveys_ranked, survey_scores = rerank_full(response, a.corrected_query, survey_pool, "survey")
-    response.papers, fit_note = fit_candidates(papers_ranked, MAX_PAPERS, a.corrected_query)
-    response.surveys = surveys_ranked[:SURVEYS_SHOWN]
+    # Papers below RERANK_CUTOFF are dropped before anything is sent to the LLM or shown.
+    papers_kept = above_cutoff(papers_ranked, paper_scores)
+    surveys_kept = above_cutoff(surveys_ranked, survey_scores)
+    response.papers, fit_note = fit_candidates(papers_kept, MAX_PAPERS, a.corrected_query)
+    response.surveys = surveys_kept[:SURVEYS_SHOWN]
     if paper_scores is not None:
         diag.note_rerank("paper", paper_pool, papers_ranked, paper_scores, len(response.papers), RERANKER_MODEL)
     if survey_scores is not None:
         diag.note_rerank("survey", survey_pool, surveys_ranked, survey_scores, len(response.surveys), RERANKER_MODEL,
                          to_llm=False)
+    diag.append(f"[rerank] Cutoff {rerank_cutoff()}: {len(papers_kept)} of {len(papers_ranked)} paper(s) and "
+                f"{len(surveys_kept)} of {len(surveys_ranked)} survey(s) at or above it; the rest were dropped.")
+    if not surveys_kept and (response.survey_focus or not papers_kept):
+        kind = "survey paper" if response.survey_focus else "paper"
+        response.errors.append(f"No {kind} was relevant enough for '{a.corrected_query}' with filters: "
+                               f"{describe_filters(a)} (reranker score below {rerank_cutoff()}). Try another "
+                               "wording, or remove the year/author/category from your prompt.")
+        return response
     diag.append(fit_note)
     diag.track_sent(response.papers)
 
@@ -1362,8 +1406,10 @@ def author_matches(hit, authors: list[str]) -> bool:
 
 # Look up one paper by its exact title (spelling fixed first); the result is just the best matching paper.
 def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
-                    meta: ParsedMessage | None = None) -> SearchResponse:
+                    meta: ParsedMessage | None = None, diagnostics: Diagnostics | None = None) -> SearchResponse:
     response = SearchResponse(prompt=title, mode="title", search_prompt=title)
+    if diagnostics is not None:   # the caller's buffer (shown live in the GUI)
+        response.diagnostics = diagnostics
     diag = response.diagnostics
     diag.original_prompt, diag.mode = title, "title"
     start_context_tracking(diag)
@@ -1410,6 +1456,7 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
     by_sim = sorted(hits, key=lambda h: sim_of[h.point_id], reverse=True)[:TITLE_POOL_BY_SIM]
     pool = list({h.point_id: h for h in by_sim + hits[:TITLE_POOL_BY_QDRANT]}.values())
     log("Reranking title candidates...")
+    rr_ok = True
     try:
         reranked, rr = rerank_hits(a.corrected_query, pool)
         rr_of = {h.point_id: min(max(float(s), 0.0), 1.0) for h, s in zip(reranked, rr)}
@@ -1423,6 +1470,7 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
     except Exception as exc:
         diag.append(f"[rerank] FAILED for the title pool ({type(exc).__name__}: {exc}); title similarity only.")
         rr_of = {h.point_id: 0.0 for h in pool}
+        rr_ok = False
 
     # Exact titles always win (reranker only breaks ties between them); otherwise blend the two scores
     def score(h) -> float:
@@ -1435,6 +1483,15 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
 
     ranked = sorted(pool, key=score, reverse=True)
     diag.track_rerank(ranked, [rr_of[h.point_id] for h in ranked])
+    if rr_ok:   # same cutoff as every route (skipped only if the reranker failed: no scores to cut on)
+        kept = [h for h in ranked if rr_of[h.point_id] >= rerank_cutoff()]
+        diag.append(f"[rerank] Cutoff {rerank_cutoff()}: {len(kept)} of {len(ranked)} title candidate(s) at or above "
+                    "it; the rest were dropped.")
+        if not kept:
+            response.errors.append(f"No paper was relevant enough for the title '{a.corrected_query}' (reranker "
+                                   f"score below {rerank_cutoff()}).")
+            return response
+        ranked = kept
 
     best = ranked[0]
     response.papers = [best]
@@ -1511,8 +1568,8 @@ Tools:
   Split a question with several parts into several searches.
 - get_paper(arxiv_id): the full abstract and ALL authors of one paper, when a search snippet is not enough
   (search results list at most 5 authors).
-- list_current_results(): the papers the user is looking at now (labels 1, 2, S1, ...), when the question
-  refers to them.
+- list_current_results(): the papers the user is looking at now (labels 1, 2, S3, ...), when the question
+  refers to them. A paper keeps its label for the whole chat; later results continue the numbering.
 
 Read ALL candidates a search returns before deciding: the reranker's first one is not always the best match.
 Cite only the papers your answer actually uses. A question about one paper ("the paper that ...", "which paper
@@ -1633,10 +1690,10 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
         # weak query written by the model cannot push a paper that fits the question out of the results
         hits = pool[:AGENT_RERANK_POOL]
         ranked, scores = rerank_two(a.corrected_query, user_question, hits)
-        above = [(h, s) for h, s in zip(ranked, scores) if s >= AGENT_RERANK_CUTOFF]
+        above = [(h, s) for h, s in zip(ranked, scores) if s >= rerank_cutoff()]
         top = [h for h, _ in above[:k]]
         searches.append({"query": topic, "authors": authors, "year_from": y_from, "year_to": y_to, "k": k,
-                         "last_name_only": bool(last_name_only), "cutoff": AGENT_RERANK_CUTOFF,
+                         "last_name_only": bool(last_name_only), "cutoff": rerank_cutoff(),
                          "ranked": [{"arxiv_id": h.arxiv_id, "rerank_score": round(s, 5),
                                      "pool": "survey" if is_survey(h) else "paper"} for h, s in zip(ranked, scores)],
                          "returned": [h.arxiv_id for h in top]})
@@ -1645,7 +1702,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
                                     [h.arxiv_id for h in top])
         for h in top:
             found.setdefault(h.arxiv_id, h)
-        # same wording as the search route's [rerank] line, plus the cutoff only the agent applies; the ids and
+        # same wording as the search route's [rerank] line, with the same cutoff (rerank_cutoff()); the ids and
         # scores of every hit are in the rank trace (block '#n'), so they are not repeated here
         top_ids = {h.arxiv_id for h in top}
         promoted = sum(1 for i, h in enumerate(hits) if i >= len(top) and h.arxiv_id in top_ids)
@@ -1653,7 +1710,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
             steps.append(f"[rerank] Search #{n}: Qdrant returned no hits with these filters; nothing to rerank.")
         else:
             steps.append(f"[rerank] Search #{n}: {len(hits)} hit(s) reranked with {RERANKER_MODEL} (better score of "
-                         f"model query / user question); {len(above)} at or above the cutoff {AGENT_RERANK_CUTOFF}; "
+                         f"model query / user question); {len(above)} at or above the cutoff {rerank_cutoff()}; "
                          f"top {len(top)} returned to the model ({promoted} promoted from below Qdrant's top "
                          f"{len(top)}, {promoted} dropped)"
                          + (f"; best score {scores[0]:.2f} ({ranked[0].arxiv_id}) is below the cutoff" if not above else "")
@@ -1661,7 +1718,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
         result = {"papers": [dict(agent_paper(h), rerank_rank=i, relevance=round(s, 2))
                              for i, (h, s) in enumerate(above[:k], 1)]} if top else \
             {"papers": [], "note": ("No paper was relevant enough (reranker score below "
-                                    f"{AGENT_RERANK_CUTOFF}). Try another wording, or fewer filters." if pool else
+                                    f"{rerank_cutoff()}). Try another wording, or fewer filters." if pool else
                                     "No papers matched; try a broader query or fewer filters.")}
         if top and last_name_only:
             result["note"] = (f"No paper by {' & '.join(authors)} with that first name. These papers are by authors "
@@ -1732,12 +1789,17 @@ def get_agent_llm():
 
 # Research question -> answer from the tool loop. The cited papers become response.papers (cards 1, 2, ...).
 def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), history: list[dict] | None = None,
-              shown: list[dict] | None = None, known: dict[str, dict] | None = None) -> SearchResponse:
+              shown: list[dict] | None = None, known: dict[str, dict] | None = None,
+              labels: dict[str, str] | None = None, diagnostics: Diagnostics | None = None) -> SearchResponse:
     response = SearchResponse(prompt=question, mode="agent", search_prompt=question)
+    if labels is not None:
+        response.labels = labels
+    if diagnostics is not None:
+        response.diagnostics = diagnostics
     diag = response.diagnostics
     diag.original_prompt, diag.mode = question, "agent"
     found: dict[str, Evidence] = {}
-    steps: list[str] = []
+    steps = diag.messages   # the agent's notes go straight into the buffer, in the order things happen
     vouched: set[str] = set()
     tools = agent_tools(found, steps, list(shown or []), dict(known or {}), log, vouched, response.agent_searches,
                         user_question=question, diag=diag,
@@ -1796,7 +1858,6 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
         steps.append(f"[agent] FAILED ({type(exc).__name__}: {str(exc)[:200]}).")
     finally:
         stop_context_tracking()
-    diag += steps
     # one line with the size of the turn: LLM rounds, searches run and the other tool calls
     others = ", ".join(f"{name} x{n}" for name, n in calls.items() if name != "search_papers")
     diag.append(f"[agent] Summary: {rounds} LLM round(s) of at most {AGENT_MAX_STEPS} + 1; "
@@ -1822,7 +1883,7 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
         # instead of letting the model answer without sources
         response.errors.append(NOTHING_FOUND)
         diag.append(f"[ranking] FAILED: {len(response.agent_searches)} search(es), no paper at or above the "
-                    f"reranker cutoff {AGENT_RERANK_CUTOFF} -> 'nothing found' reply (the model's answer was "
+                    f"reranker cutoff {rerank_cutoff()} -> 'nothing found' reply (the model's answer was "
                     "not shown).")
         return response
     if not answer and not response.errors:
@@ -1838,30 +1899,35 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
 
     # The whole citation is replaced, with its brackets and any 'arXiv:' / 'arXiv ' prefix: '[2101.00190]',
     # 'arXiv:2101.00190' and '[arXiv:2101.00190v2]' all become '[1]' (no leftover 'arXiv:1').
+    # Card label of a cited paper: its number in this chat if the GUI passed its label map, else its position
+    # among the papers cited.
+    def card_label(pid: str) -> str:
+        return session_label(labels, found[pid]) if labels is not None else str(cited.index(pid) + 1)
+
     def renumber(m: re.Match) -> str:
         pid = m.group(1)
         if pid in found:
             if pid not in cited:
                 cited.append(pid)
-            return f"[{cited.index(pid) + 1}]"
-        if pid in vouched:   # a paper shown earlier in the chat: real, but no new card for it
-            return f"[{pid}]"
+            return f"[{card_label(pid)}]"
+        if pid in vouched:   # a paper shown earlier in the chat: real, but no new card for it (its number if known)
+            return f"[{(labels or {}).get(pid, pid)}]"
         if pid not in unverified:
             unverified.append(pid)
         return f"[{pid} (unverified)]"
 
     answer = CITATION_RE.sub(renumber, answer)
     # 'arXiv:2101.00190 [2101.00190]' -> '[1] [1]': keep one
-    response.answer = re.sub(r"(\[(\d+)\])([*_\s]{0,4})\[\2\]", lambda m: m.group(1) + m.group(3).strip(), answer)
+    response.answer = re.sub(r"(\[(S?\d+)\])([*_\s]{0,4})\[\2\]", lambda m: m.group(1) + m.group(3).strip(), answer)
     response.papers = [found[pid] for pid in cited]
     response.top_papers = list(range(1, len(cited) + 1))
     diag.track_agent_citations(cited)
     response.memory_papers = list(cited)
-    response.memory_note = "Papers cited: " + "; ".join(f"[{i}] [{h.arxiv_id}] {h.title}"
-                                                         for i, h in enumerate(response.papers, start=1))
+    response.memory_note = "Papers cited: " + "; ".join(f"[{card_label(h.arxiv_id)}] [{h.arxiv_id}] {h.title}"
+                                                         for h in response.papers)
     # the agent's counterpart of the search route's [ranking] line: what the model chose to show, and from what
     diag.append(f"[ranking] Agent answer (the model chooses what to cite): cites {len(cited)} of {len(found)} "
-                f"paper(s) the tools returned -> cards {', '.join(f'[{i}] {pid}' for i, pid in enumerate(cited, 1)) or 'none'}"
+                f"paper(s) the tools returned -> cards {', '.join(f'[{card_label(pid)}] {pid}' for pid in cited) or 'none'}"
                 + (f"; WARNING: unverified ids (no tool returned them): {', '.join(unverified)}" if unverified else "")
                 + ".")
     if unverified:
@@ -1891,12 +1957,20 @@ def rejected(message: str, parsed: ParsedMessage, error: str, diag_line: str) ->
 #                typed. Anything else goes to the agent, which decides for itself what to search or look up.
 # There are no remembered modes: each message is handled on its own (the history is still read).
 # shown / known = papers of the last result / all papers shown in the chat (the agent can read them).
+# labels = the chat's arXiv id -> number map (session_label); the papers shown in this turn are added to it.
+# cutoff = the user's reranker cutoff (GUI slider); None = RERANK_CUTOFF.
+# diagnostics = a buffer the caller made, filled while the route runs (the GUI shows it live); None = a new one.
+# A message stopped by the input checks returns its own buffer instead.
 # current_mode and on_mode are accepted for old callers and ignored.
 def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
              history: list[dict] | None = None, on_token: TokenFn | None = None,
              newest_first: bool = False, current_mode: str | None = None,
              shown: list[dict] | None = None, known: dict[str, dict] | None = None,
-             on_mode: Callable[[str], None] | None = None) -> SearchResponse:
+             on_mode: Callable[[str], None] | None = None,
+             labels: dict[str, str] | None = None, cutoff: float | None = None,
+             diagnostics: Diagnostics | None = None) -> SearchResponse:
+    if cutoff is not None:   # the user's slider value: in force for everything this call runs (rerank_cutoff())
+        _rerank_cutoff.set(clamp_cutoff(cutoff))
     message = message or ""
     problem = length_problem(message)
     if problem:
@@ -1914,8 +1988,8 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
     parsed.notes[:0] = clean_notes
     mode = parsed.mode_key if parsed.mode_key in ("search", "title") else None
 
-    if mode is None:   # no search= / title=: the agent answers (analyze= and stray keys are just text to it)
-        question = parsed.text if parsed.mode_key == "analyze" and parsed.text.strip() else cleaned
+    if mode is None:   # no search= / title=: the agent answers (stray keys are just text to it)
+        question = cleaned
         if not re.search(r"[^\W_]", question):
             return rejected(message, parsed, "Type a question or a topic, e.g. recent papers on RAG evaluation.",
                             "[query] Step 2 symbols (remove): no words left -> FAILED.")
@@ -1924,18 +1998,19 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
                             f"[scope] '{question}' is too vague to search -> refused without a model call.")
         if AGENT_ENABLED:
             turns, memory_note = select_history(history)
-            answer = run_agent(question, log, turns, shown, known)
-            answer.prompt = message
             # same frame as the search route: [mode] and the parser notes first, [memory], then the steps of
-            # the route, [context] (token use per LLM call) last
+            # the route, [context] (token use per LLM call) last. Written before the route runs, so the buffer
+            # fills in the order things happen (the GUI shows it live).
             notes = clean_notes + ["[query] Parser: no search= / title= key -> answered by the agent."]
-            if parsed.mode_key == "analyze":
-                notes.append("[query] analyze= key: its text is the question for the agent.")
             if parsed.meta_keys:
                 notes.append(f"[query] {' '.join(parsed.meta_keys)} typed without search= / title=: plain text for "
                              "the agent, not a database filter (the model decides whether to filter).")
             notes.append(memory_note + " The model gets them as chat messages (no follow-up rewrite)."
                          if history else "[memory] No earlier turns in this chat.")
+            live = diagnostics if diagnostics is not None else Diagnostics()
+            live.begin_search(question, keyword="agent", parser_notes=notes)
+            answer = run_agent(question, log, turns, shown, known, labels, diagnostics=live)
+            answer.prompt = message
             answer.diagnostics.finish_search(question, NUM_CTX, keyword="agent", parser_notes=notes)
             return answer
         parsed = parse_message(f"search= {question}", None)   # AGENT=0: searched as a topic
@@ -1952,19 +2027,27 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
                         f"[query] Step 2 symbols (remove): nothing but symbols in the {mode}= text -> FAILED.")
     query = parsed.text
     turns, memory_note = select_history(history)
+    if mode == "title":
+        memory_note = "[memory] Title lookups do not use the conversation (the title is searched as typed)."
+    elif not history:
+        memory_note = "[memory] No earlier turns in this chat."
+    # [mode] and the parser notes are written before the route runs: the buffer fills in the order things happen
+    notes = [f"[query] Parser: {parsed.summary()}"] + parsed.notes + [memory_note]
+    live = diagnostics if diagnostics is not None else Diagnostics()
+    live.begin_search(query, keyword=mode, parser_notes=notes)
     try:
         if mode == "title":
-            response = run_title_query(query, log, meta=parsed)
-            memory_note = "[memory] Title lookups do not use the conversation (the title is searched as typed)."
+            response = run_title_query(query, log, meta=parsed, diagnostics=live)
         else:
-            response = run_query(query, log, turns, newest_first=newest_first, meta=parsed)
-            if not history:
-                memory_note = "[memory] No earlier turns in this chat."
+            response = run_query(query, log, turns, newest_first=newest_first, meta=parsed, diagnostics=live)
     finally:
         stop_context_tracking()
-    response.diagnostics.finish_search(query, NUM_CTX, keyword=mode,
-                                       parser_notes=[f"[query] Parser: {parsed.summary()}"] + parsed.notes
-                                       + [memory_note])
+    response.diagnostics.finish_search(query, NUM_CTX, keyword=mode, parser_notes=notes)
+    if labels is not None and not response.errors:   # chat-wide numbers for the papers shown, in display order
+        response.labels = labels
+        for hit in ([response.papers[n - 1] for n in response.top_papers]
+                    + [response.surveys[n - 1] for n in response.top_surveys]):
+            session_label(labels, hit)
     return response
 
 
@@ -2278,12 +2361,45 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
             selection.add(gui.paper_to_hit(p), checked=p["arxiv_id"] in checked)
         return selection
 
+    # ---- Settings panel (Chainlit's chat settings: the gear button in the message box) ----
+    # One control so far: the reranker cutoff. The value is saved per user (prefs table) and applies to all of
+    # that user's chats; every message is run with it (run_turn(cutoff=...)).
+    CUTOFF_PREF = "rerank_cutoff"
+
+    # The logged-in user's saved cutoff, else the default.
+    def user_cutoff() -> float:
+        user = cl.context.session.user
+        saved = db.get_pref(user.identifier, CUTOFF_PREF) if user else None
+        return clamp_cutoff(saved) if saved is not None else RERANK_CUTOFF
+
+    # Show the settings panel with the user's current values (called for a new and for a reopened chat).
+    async def send_settings() -> None:
+        from chainlit.input_widget import Slider
+        value = user_cutoff()
+        cl.user_session.set(CUTOFF_PREF, value)
+        await cl.ChatSettings([
+            Slider(id=CUTOFF_PREF, label="Reranker cutoff", initial=value,
+                   min=RERANK_CUTOFF_MIN, max=RERANK_CUTOFF_MAX, step=0.01,
+                   description=f"Papers the reranker scores below this are dropped, in every mode. Higher = "
+                               f"fewer, more relevant papers. Default {RERANK_CUTOFF}."),
+        ]).send()
+
+    # The user confirmed the settings panel: keep the value for this chat and save it for the user.
+    @cl.on_settings_update
+    async def gui_settings_update(settings: dict):
+        value = clamp_cutoff(settings.get(CUTOFF_PREF))
+        cl.user_session.set(CUTOFF_PREF, value)
+        user = cl.context.session.user
+        if user:
+            db.set_pref(user.identifier, CUTOFF_PREF, str(value))
+
     # Old chat reopened from the left pane: restore state, buttons and sidebar.
     @cl.on_chat_resume
     async def gui_resume(thread: dict):
         gui.ensure_session()
         record_trace()
         cl.user_session.set("selection", rebuild_selection())
+        await send_settings()
         await gui.resume(thread)
 
     # New chat: reset state and greet.
@@ -2292,6 +2408,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         gui.init_session()
         record_trace()
         cl.user_session.set("selection", ChunkSelection())
+        await send_settings()
         await gui.show_mode(None)   # banner: neutral until the first message
         await gui.send_welcome()
         status = cl.Message("Checking the models and the database...")
@@ -2340,15 +2457,26 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
 
         # Banner and box colour show what this message runs (nothing is remembered): search= / title= as typed,
         # anything else the agent ("ask")
-        shown = gui.last_result_papers()
+        shown = gui.papers_for_message(prompt)   # last result + older papers the message names by number
         typed = None if length_problem(prompt) else parse_message(prompt, None).mode_key
         await gui.show_mode(typed if typed in ("search", "title") else "ask")
 
         user = cl.context.session.user
         newest_first = bool(user) and db.get_pref(user.identifier, NEWEST_FIRST_PREF) == "1"   # top-bar box
-        r = await cl.make_async(run_turn)(prompt, log, list(gui.history()), on_token,
-                                          newest_first=newest_first, shown=shown,
-                                          known=dict(cl.user_session.get("papers_by_id") or {}))
+        # Live diagnostics: a panel under the question shows the buffer while the route fills it. When the
+        # answer is on screen it is removed and the finished panel is sent below the answer, as before.
+        live_diag = Diagnostics()
+        live_panel = await gui.send_live_diagnostics()
+        watcher = asyncio.create_task(gui.watch_diagnostics(live_diag, live_panel.id))
+        try:
+            r = await cl.make_async(run_turn)(prompt, log, list(gui.history()), on_token,
+                                              newest_first=newest_first, shown=shown,
+                                              known=dict(cl.user_session.get("papers_by_id") or {}),
+                                              labels=gui.labels(),
+                                              cutoff=clamp_cutoff(cl.user_session.get(CUTOFF_PREF, user_cutoff())),
+                                              diagnostics=live_diag)
+        finally:
+            watcher.cancel()
         if not streaming["started"]:
             await status.remove()
         tags = memory_tags(r)   # decides whether later turns read this question/answer
@@ -2357,7 +2485,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         selection = gui_selection()
         on_results_shown(selection, r)
         if r.mode in ("search", "title") and not r.errors:
-            gui.set_last_results(gui.picked_hits(r), r.best[0] if r.best else None)   # labels the agent can read
+            gui.set_last_results(gui.picked_hits(r), gui.best_label(r))   # labels the agent can read
 
         if r.mode == "agent":
             # Answer first, then a card per cited paper (labels 1, 2, ... match the [1], [2] in the answer)
@@ -2377,7 +2505,10 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
             for label, hit in gui.picked_hits(r):
                 paper = gui.to_paper(hit, label, r.why_best if hit is best else "")
                 await gui.send_paper(paper, selection.is_checked(hit.point_id))
-        await gui.send_diagnostics_panel(r.diagnostics.to_dict())   # collapsible panel under the answer
+        # the live panel under the question goes away; the finished one sits under the answer (open if the
+        # live one was open) and is the one saved with the chat
+        await gui.remove_live_diagnostics(live_panel)
+        await gui.send_diagnostics_panel(r.diagnostics.to_dict(), replaces=live_panel.id)
         print(format_diagnostics(r), flush=True)   # console copy of the digest
         await gui.save_session()   # shown papers, last results, mode: kept even if the server is restarted
 

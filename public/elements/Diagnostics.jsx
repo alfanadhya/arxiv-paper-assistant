@@ -2,7 +2,10 @@
 // `props` comes from Python (chatbot_diagnostics.Diagnostics.to_dict() -> app.send_diagnostics_panel):
 //   { original_prompt, rewritten_prompt, modified_query, mode, messages: [str], ranks: [CandidateRank] }
 // mode "agent": ranks are grouped by search (pool = "#1", "#2", ...; search = the agent's query).
-import { useState } from "react";
+// Live panel (props.live): sent empty when a message arrives; Python then posts the buffer as it fills
+//   (app.watch_diagnostics -> window message {type: "diagnostics_live", panel_id, data}) and the panel shows
+//   that data instead of its props. props.replaces (finished panel) = id of the live panel it takes over from.
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Stethoscope } from "lucide-react";
 
 // Colour per tag so fallbacks and failures stand out.
@@ -34,29 +37,56 @@ const cell = (v) => (v === null || v === undefined ? "–" : v);
 // `window`, keyed by props.panel_id (one per diagnostics message).
 const openPanels = (window.__diagnosticsOpen = window.__diagnosticsOpen || {});
 
+// Latest data of each live panel, kept on `window` for the same reason. One page-wide listener stores what
+// Python posts and tells the mounted panel (if any) to redraw.
+const liveData = (window.__diagnosticsLive = window.__diagnosticsLive || {});
+if (!window.__diagnosticsLiveListener) {
+  window.__diagnosticsLiveListener = true;
+  window.addEventListener("message", (event) => {
+    const d = event.data;
+    if (!d || d.type !== "diagnostics_live" || !d.panel_id) return;
+    liveData[d.panel_id] = d.data;
+    window.dispatchEvent(new CustomEvent("diagnostics-live", { detail: d.panel_id }));
+  });
+}
+
 export default function Diagnostics() {
   const panelId = props.panel_id;
+  const isLive = Boolean(props.live);
+  // A live panel starts open (it is there to be watched). The finished panel that replaces it opens if the
+  // live one was still open; any other panel (e.g. in a reopened chat) starts closed.
+  if (isLive && panelId && !(panelId in openPanels)) openPanels[panelId] = true;
+  if (!isLive && panelId && !(panelId in openPanels) && props.replaces && props.replaces in openPanels) {
+    openPanels[panelId] = openPanels[props.replaces];
+  }
   const [open, setOpenState] = useState(Boolean(panelId && openPanels[panelId]));
   const setOpen = (value) => {
     if (panelId) openPanels[panelId] = value;
     setOpenState(value);
   };
-  const messages = props.messages || [];
-  const ranks = props.ranks || [];
-  const isChat = props.mode === "chat";
-  const isAgent = props.mode === "agent";   // tool-calling answer: one rank-trace block per search
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    if (!isLive) return undefined;
+    const onLive = (event) => { if (event.detail === panelId) redraw((n) => n + 1); };
+    window.addEventListener("diagnostics-live", onLive);
+    return () => window.removeEventListener("diagnostics-live", onLive);
+  }, [panelId, isLive]);
+  const data = (isLive && liveData[panelId]) || props;
+  const messages = data.messages || [];
+  const ranks = data.ranks || [];
+  const isChat = data.mode === "chat";
+  const isAgent = data.mode === "agent";   // tool-calling answer: one rank-trace block per search
   const searches = isAgent ? new Set(ranks.map((r) => r.pool)).size : 0;
   const issues = messages.filter((m) => /FAILED|FALLBACK|failed|Dropped|ADJUSTED/.test(m)).length;
   const norm = (s) => (s || "").trim().toLowerCase().split(/\s+/).join(" ");
-  const queryChanged = Boolean(props.rewritten_prompt) ||
-    (props.modified_query && norm(props.modified_query) !== norm(props.original_prompt));
+  const queryChanged = Boolean(data.rewritten_prompt) ||
+    (data.modified_query && norm(data.modified_query) !== norm(data.original_prompt));
   const moved = ranks.filter((r) => r.rerank_rank && r.rerank_rank !== r.initial_rank).length;
   const summary = [
     isChat ? "chat (no search)" :
-      isAgent ? (searches ? `agent: ${searches} search${searches === 1 ? "" : "es"} · ${props.modified_query}` :
+      isAgent ? (searches ? `agent: ${searches} search${searches === 1 ? "" : "es"} · ${data.modified_query}` :
                  "agent (no search)") :
-      props.mode === "analyze" ? "analyze (papers shown, no search)" :
-      props.modified_query ? `query: ${props.modified_query}${queryChanged ? " (changed)" : ""}` : "no query",
+      data.modified_query ? `query: ${data.modified_query}${queryChanged ? " (changed)" : ""}` : "no query",
     messages.length ? `${messages.length} note${messages.length === 1 ? "" : "s"}` : "no notes",
     issues ? `${issues} adjustment${issues === 1 ? "" : "s"}` : null,
     ranks.length ? `${moved} rank change${moved === 1 ? "" : "s"}` : null,
@@ -71,7 +101,7 @@ export default function Diagnostics() {
       >
         {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         <Stethoscope className="h-4 w-4" />
-        <span className="font-medium">Diagnostics</span>
+        <span className="font-medium">{isLive ? "Diagnostics (running…)" : "Diagnostics"}</span>
         <span className="text-xs text-muted-foreground truncate">{summary}</span>
       </button>
 
@@ -80,14 +110,14 @@ export default function Diagnostics() {
           <table className="text-xs">
             <tbody>
               <tr><td className="pr-3 text-muted-foreground">Mode</td><td>{isChat ? "chat with the LLM" : isAgent ? "agent (the LLM searches with tools)" : "database search"}</td></tr>
-              <tr><td className="pr-3 text-muted-foreground">Original prompt</td><td>{props.original_prompt}</td></tr>
-              {props.rewritten_prompt && (
-                <tr><td className="pr-3 text-muted-foreground">Follow-up rewrite</td><td>{props.rewritten_prompt}</td></tr>
+              <tr><td className="pr-3 text-muted-foreground">Original prompt</td><td>{data.original_prompt}</td></tr>
+              {data.rewritten_prompt && (
+                <tr><td className="pr-3 text-muted-foreground">Follow-up rewrite</td><td>{data.rewritten_prompt}</td></tr>
               )}
               {!isChat && (
                 <tr>
                   <td className="pr-3 text-muted-foreground">{isAgent ? "Agent queries" : "Modified query"}</td>
-                  <td className="font-medium">{props.modified_query || "(none)"}</td>
+                  <td className="font-medium">{data.modified_query || "(none)"}</td>
                 </tr>
               )}
             </tbody>
@@ -123,6 +153,8 @@ export default function Diagnostics() {
                     {ranks.some((r) => r.title_sim !== null && r.title_sim !== undefined) && (
                       <th className="text-right pr-2" title="Title similarity to the typed title (title lookups)">Title sim</th>
                     )}
+                    <th className="text-left pr-2" title="arXiv id">arXiv</th>
+                    <th className="text-left pr-2" title="First three authors">Authors</th>
                     <th className="text-left">Title</th>
                   </tr>
                 </thead>
@@ -144,6 +176,8 @@ export default function Diagnostics() {
                       {ranks.some((x) => x.title_sim !== null && x.title_sim !== undefined) && (
                         <td className="text-right pr-2">{r.title_sim === null || r.title_sim === undefined ? "–" : r.title_sim.toFixed(2)}</td>
                       )}
+                      <td className="pr-2 whitespace-nowrap">{cell(r.arxiv_id)}</td>
+                      <td className="pr-2 truncate max-w-[14rem]" title={r.authors || undefined}>{r.authors || "–"}</td>
                       <td className="truncate max-w-[18rem]" title={r.title}>{r.title}</td>
                     </tr>
                   ))}
