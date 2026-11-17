@@ -53,12 +53,9 @@ if (!window.__diagnosticsLiveListener) {
 export default function Diagnostics() {
   const panelId = props.panel_id;
   const isLive = Boolean(props.live);
-  // A live panel starts open (it is there to be watched). The finished panel that replaces it opens if the
-  // live one was still open; any other panel (e.g. in a reopened chat) starts closed.
-  if (isLive && panelId && !(panelId in openPanels)) openPanels[panelId] = true;
-  if (!isLive && panelId && !(panelId in openPanels) && props.replaces && props.replaces in openPanels) {
-    openPanels[panelId] = openPanels[props.replaces];
-  }
+  // Every panel (live, finished, reopened chat) starts as the user's settings switch says (props.default_open,
+  // "Show diagnostics expanded"); a click then opens or closes that one panel.
+  if (panelId && !(panelId in openPanels)) openPanels[panelId] = Boolean(props.default_open);
   const [open, setOpenState] = useState(Boolean(panelId && openPanels[panelId]));
   const setOpen = (value) => {
     if (panelId) openPanels[panelId] = value;

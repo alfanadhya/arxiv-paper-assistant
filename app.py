@@ -48,8 +48,7 @@ def init_session() -> None:
     cl.user_session.set("buttons", {})        # arxiv_id -> (select Action, message id)
     cl.user_session.set("history", [])        # conversation memory for follow-ups
     cl.user_session.set("sidebar_pinned", True)   # reading-list panel pinned by default
-    cl.user_session.set("last_results", [])   # [[label, arxiv_id], ...] of the last result (labels for the agent)
-    cl.user_session.set("labels", {})         # arxiv_id -> the paper's number in this chat (never restarts)
+    cl.user_session.set("last_results", [])   # [[label, arxiv_id], ...] of the latest result (numbered from 1)
 
 
 # After a resume, add any session keys that were not restored (keeps restored ones).
@@ -57,12 +56,6 @@ def ensure_session() -> None:
     for key, empty in (("reading_list", []), ("papers_by_id", {}), ("history", []), ("last_results", [])):
         if not isinstance(cl.user_session.get(key), type(empty)):
             cl.user_session.set(key, empty)
-    if not isinstance(cl.user_session.get("labels"), dict):
-        # chat saved before chat-wide numbers existed: its old cards keep their per-result numbers; count the
-        # papers it showed so that new numbers continue after them instead of starting at 1 again
-        shown = cl.user_session.get("papers_by_id") or {}
-        cl.user_session.set("labels", {aid: f"{'S' if str(p.get('label', '')).startswith('S') else ''}{i}"
-                                       for i, (aid, p) in enumerate(shown.items(), start=1)})
     cl.user_session.set("buttons", {})        # Action objects are never restored
 
 
@@ -108,30 +101,10 @@ def last_result_papers() -> list[dict]:
     return papers
 
 
-# The chat's arxiv_id -> number map (threeofus_main.session_label fills it): a paper gets its number when it is
-# first shown and keeps it, and every new result continues the count.
-def labels() -> dict[str, str]:
-    found = cl.user_session.get("labels")
-    if not isinstance(found, dict):
-        found = {}
-        cl.user_session.set("labels", found)
-    return found
-
-
-# Papers the agent is told about for this message: the last result, plus any older paper of the chat whose
-# number the message names ("compare 2 and 7"), so earlier results stay reachable by number.
+# Papers the agent is told about for this message: the latest result only. Every result is numbered from 1,
+# so a number ("compare 2 and 3") always means a paper of the latest result; older papers are reached by title.
 def papers_for_message(prompt: str) -> list[dict]:
-    import re
-    papers = last_result_papers()
-    listed = {p["arxiv_id"] for p in papers}
-    named = {t.upper() for t in re.findall(r"(?<![\w.])[sS]?\d{1,3}(?![\w.])", prompt or "")}
-    for arxiv_id, label in labels().items():
-        if arxiv_id in listed or label not in named and label.lstrip("S") not in named:
-            continue
-        paper = paper_by_id(arxiv_id)
-        if paper is not None:
-            papers.append({**paper, "label": label, "best": False})
-    return papers
+    return last_result_papers()
 
 
 # ---------------------------------------------------------------- conversation memory
@@ -159,19 +132,16 @@ def paper_year(hit) -> int:
 
 
 # Hits picked by the model, in display order, with their labels ("3", "S2"); r is a SearchResponse. The label
-# is the paper's number in this chat (r.labels); without that map it is the position in this result.
+# is the paper's position in this result (every result is numbered from 1).
 def picked_hits(r) -> list[tuple[str, object]]:
-    known = getattr(r, "labels", None) or {}
-    papers = [(known.get(h.arxiv_id, str(n)), h) for n, h in ((n, r.papers[n - 1]) for n in r.top_papers)]
-    surveys = [(known.get(h.arxiv_id, f"S{n}"), h) for n, h in ((n, r.surveys[n - 1]) for n in r.top_surveys)]
+    papers = [(str(n), r.papers[n - 1]) for n in r.top_papers]
+    surveys = [(f"S{n}", r.surveys[n - 1]) for n in r.top_surveys]
     return papers + surveys
 
 
 # Label of the best match as shown on its card; None if there is no best match.
 def best_label(r) -> str | None:
-    if not r.best:
-        return None
-    return (getattr(r, "labels", None) or {}).get(r.best[1].arxiv_id, r.best[0])
+    return r.best[0] if r.best else None
 
 
 # 'Last, First[, Suffix]' -> 'First Last[ Suffix]' (BibTeX export needs the last name last).
@@ -349,9 +319,14 @@ async def send_notice(text: str) -> None:
 
 
 # Diagnostics panel element for a message; a fixed id per message so a resume never shows it twice.
+DIAG_OPEN_KEY = "diagnostics_open"   # session key (and prefs key): the user's "Show diagnostics expanded" switch
+
+
+# default_open = the user's settings switch: every panel (live, finished, reopened chat) starts that way.
 def diagnostics_panel(data: dict, msg_id: str) -> cl.CustomElement:
-    return cl.CustomElement(name="Diagnostics", props={**data, "panel_id": msg_id}, display="inline",
-                            id=f"diag-{msg_id}")
+    default_open = bool(cl.user_session.get(DIAG_OPEN_KEY, False))
+    return cl.CustomElement(name="Diagnostics", props={**data, "panel_id": msg_id, "default_open": default_open},
+                            display="inline", id=f"diag-{msg_id}")
 
 
 # Collapsible diagnostics panel (public/elements/Diagnostics.jsx) shown under the answer. The data is also

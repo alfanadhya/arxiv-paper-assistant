@@ -14,7 +14,7 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Annotated, Callable
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -22,7 +22,7 @@ from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
 from langchain_core.tools import StructuredTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_ollama import ChatOllama
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 from export import DEFAULT_SELECTION_FILE, selection_file, write_chunks_jsonl
 from chatbot_diagnostics import (Diagnostics, format_diagnostics, llm_config,
@@ -305,8 +305,6 @@ class SearchResponse:
     top_papers: list[int] = field(default_factory=list) # 1-based picks into papers (newest first if newest_first)
     top_surveys: list[int] = field(default_factory=list)# 1-based positions into surveys (newest first if newest_first)
     best: tuple[str, object] | None = None              # (label like "3" / "S2", hit)
-    # arXiv id -> the paper's number in this chat (GUI only, see session_label); empty = labels count per result
-    labels: dict[str, str] = field(default_factory=dict)
     active_mode: str | None = None                      # mode remembered for the chat after this turn (banner)
     request: str = ""                                   # the user's request with its year=/author= keys (LLM context)
     filters: str = "none"                               # metadata filters Qdrant used (describe_filters), LLM context
@@ -701,11 +699,9 @@ def assistant_turn_text(r: SearchResponse) -> str:
         return "No results: " + " ".join(r.errors)
     topic = r.analysis.corrected_query if r.analysis else r.search_prompt
     lines = [f"Papers for '{topic}':"]
-    # with the chat's label map: the numbers on the cards, so the history and the screen agree
-    lines += [f"[{r.labels.get(h.arxiv_id, n)}] [{h.arxiv_id}] {h.title}"
-              for n, h in ((n, r.papers[n - 1]) for n in r.top_papers)]
-    lines += [f"[{r.labels.get(h.arxiv_id, f'S{n}')}] [{h.arxiv_id}] {h.title}"
-              for n, h in ((n, r.surveys[n - 1]) for n in r.top_surveys)]
+    # the numbers on the cards of this result (every result is numbered from 1)
+    lines += [f"[{n}] [{h.arxiv_id}] {h.title}" for n, h in ((n, r.papers[n - 1]) for n in r.top_papers)]
+    lines += [f"[S{n}] [{h.arxiv_id}] {h.title}" for n, h in ((n, r.surveys[n - 1]) for n in r.top_surveys)]
     return "\n".join(lines)
 
 
@@ -868,15 +864,6 @@ def analyze_query(prompt: str, title_mode: bool = False,
 # True if the hit's title contains 'survey'.
 def is_survey(hit) -> bool:
     return "survey" in hit.title.lower()
-
-
-# The paper's number in this chat ("4", or "S4" for a survey). It is given once, when the paper is first shown,
-# and never changes or restarts: a later result continues the count and a paper shown again keeps its number.
-# `labels` (arXiv id -> label) is the chat's map; it is extended in place.
-def session_label(labels: dict[str, str], hit) -> str:
-    if hit.arxiv_id not in labels:
-        labels[hit.arxiv_id] = f"{'S' if is_survey(hit) else ''}{len(labels) + 1}"
-    return labels[hit.arxiv_id]
 
 
 # Publication year from metadata; 0 if missing.
@@ -1589,19 +1576,30 @@ Tools:
 - get_paper(arxiv_id): the full abstract and ALL authors of one paper, when a search snippet is not enough
   (search results list at most 5 authors).
 - list_current_results(): the papers the user is looking at now (labels 1, 2, S3, ...), when the question
-  refers to them. A paper keeps its label for the whole chat; later results continue the numbering.
+  refers to them. Numbers refer to the papers of the latest result only; each new result is numbered from 1.
 
-Read ALL candidates a search returns before deciding: the reranker's first one is not always the best match.
+Read ALL candidates papers retruned by the search before deciding: the best score is not always the best match.
 Cite only the papers your answer actually uses. A question about one paper ("the paper that ...", "which paper
 ...") limits what you cite, not what you read: pick the candidate that matches best and cite just that one.
 
-Work in at most {AGENT_MAX_STEPS} tool rounds, then answer in at most about 200 words, in short paragraphs or
-bullets. Cite every claim with the paper's arXiv id in square brackets, e.g. [2105.01234]. Never cite an id a
+Work in at most {AGENT_MAX_STEPS} tool rounds, then answer in at most about 200 words (a comparison: up to about
+350), in short paragraphs or bullets. Cite every claim with the paper's arXiv id in square brackets, e.g. [2105.01234]. Never cite an id a
 tool did not return, and never invent papers, results, numbers or datasets. If the papers found do not answer
 the question, say so plainly.
 
 Questions about the papers shown (by label, e.g. "compare 1 and 2", "list all authors of 1 and 3", "which is
-newest?") are answered from them; call get_paper for details the listing lacks. Greetings, thanks or questions
+newest?") are answered from them; call get_paper for details the listing lacks.
+
+To COMPARE papers shown (e.g. "compare 2 and 3", "2 vs 3", "difference between 1 and 4"): do not search; call
+get_paper for each paper, then for each paper in turn write its title with its arXiv id in square brackets,
+followed by four short bullets:
+- Topic: the field or problem area the paper is in.
+- Objective: what the paper sets out to achieve.
+- Method: how it does it (approach, model, data).
+- Results: what the abstract reports (findings, numbers, benchmarks).
+Take every bullet from THAT paper's abstract only, in one sentence; never move a fact from one paper to another.
+If the abstract does not state it, write "Not stated in the abstract". After the papers, write one short
+"Comparison" paragraph on how they differ (and what they share, if it matters). Greetings, thanks or questions
 about how to use this tool need no tools: answer in one or two sentences."""
 
 # Sent back once when the model answers a research question without any tool call (see must_search).
@@ -1692,6 +1690,22 @@ def to_int(value) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# A year argument of a tool call, converted BEFORE the type check: the model sometimes writes '' (or 'null',
+# 'none') for "no year", or the year in quotes ('2020'). Those become None / 2020 instead of failing the whole
+# call with a ValidationError; anything else is passed on and checked as an integer as before.
+def _tool_year(value):
+    if value is None or isinstance(value, int):
+        return value
+    text = str(value).strip().lower()
+    if text in ("", "null", "none"):
+        return None
+    return int(text) if text.isdigit() else value
+
+
+# The schema the model sees stays "integer or null"; the validator only tolerates these slips.
+ToolYear = Annotated[int | None, BeforeValidator(_tool_year)]
+
+
 # The tools for one agent turn. `found` collects every paper a tool returned (arXiv id -> Evidence) so the
 # answer's citations can be checked; `steps` collects one diagnostic line per call.
 def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[str, dict], log: LogFn,
@@ -1700,7 +1714,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
     date_text = user_question if date_text is None else date_text   # where a year filter must come from
     vouched = vouched if vouched is not None else set()   # ids a tool returned that have no search hit (shown papers)
     searches = searches if searches is not None else []   # one record per search call (eval trace)
-    def search(query: str = "", author: str = "", year_from: int | None = None, year_to: int | None = None) -> str:
+    def search(query: str = "", author: str = "", year_from: ToolYear = None, year_to: ToolYear = None) -> str:
         topic = " ".join(str(query or "").split())
         authors = [a.strip() for a in re.split(r";|\band\b", str(author or "")) if a.strip()]
         n = len(searches) + 1   # number of this search in the turn (the same '#n' as in the rank trace)
@@ -1888,10 +1902,8 @@ def get_agent_llm():
 # Research question -> answer from the tool loop. The cited papers become response.papers (cards 1, 2, ...).
 def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), history: list[dict] | None = None,
               shown: list[dict] | None = None, known: dict[str, dict] | None = None,
-              labels: dict[str, str] | None = None, diagnostics: Diagnostics | None = None) -> SearchResponse:
+              diagnostics: Diagnostics | None = None) -> SearchResponse:
     response = SearchResponse(prompt=question, mode="agent", search_prompt=question)
-    if labels is not None:
-        response.labels = labels
     if diagnostics is not None:
         response.diagnostics = diagnostics
     diag = response.diagnostics
@@ -2009,25 +2021,33 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
     if response.errors:
         return response
 
-    # Citations: ids a tool returned -> [1], [2] ... (cards below the answer); other ids are flagged
+    # Citations: ids a tool returned -> [1], [2] ... (cards below the answer, a new result numbered from 1);
+    # other ids are flagged. A turn that ran NO search is about the papers on screen ("compare 2 and 3"): those
+    # keep their numbers on screen, get no new card, and the latest result stays as it is.
     cited: list[str] = []
+    cited_on_screen: list[str] = []
     unverified: list[str] = []
+    screen = {p["arxiv_id"]: str(p["label"]) for p in (shown or [])}
+    searched = bool(response.agent_searches)
 
     # The whole citation is replaced, with its brackets and any 'arXiv:' / 'arXiv ' prefix: '[2101.00190]',
     # 'arXiv:2101.00190' and '[arXiv:2101.00190v2]' all become '[1]' (no leftover 'arXiv:1').
-    # Card label of a cited paper: its number in this chat if the GUI passed its label map, else its position
-    # among the papers cited.
+    # Card label of a cited paper: its position among the papers cited (the new result's numbering).
     def card_label(pid: str) -> str:
-        return session_label(labels, found[pid]) if labels is not None else str(cited.index(pid) + 1)
+        return str(cited.index(pid) + 1)
 
     def renumber(m: re.Match) -> str:
         pid = m.group(1)
+        if not searched and pid in screen:   # about the papers on screen: their number there, no new card
+            if pid not in cited_on_screen:
+                cited_on_screen.append(pid)
+            return f"[{screen[pid]}]"
         if pid in found:
             if pid not in cited:
                 cited.append(pid)
             return f"[{card_label(pid)}]"
-        if pid in vouched:   # a paper shown earlier in the chat: real, but no new card for it (its number if known)
-            return f"[{(labels or {}).get(pid, pid)}]"
+        if pid in vouched:   # shown earlier but not in this result: real, no card and no number (numbers belong
+            return f"[{pid}]"  # to the latest result only)
         if pid not in unverified:
             unverified.append(pid)
         return f"[{pid} (unverified)]"
@@ -2038,12 +2058,16 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
     response.papers = [found[pid] for pid in cited]
     response.top_papers = list(range(1, len(cited) + 1))
     diag.track_agent_citations(cited)
-    response.memory_papers = list(cited)
-    response.memory_note = "Papers cited: " + "; ".join(f"[{card_label(h.arxiv_id)}] [{h.arxiv_id}] {h.title}"
-                                                         for h in response.papers)
+    response.memory_papers = list(cited) + [pid for pid in cited_on_screen if pid not in cited]
+    titles = {p["arxiv_id"]: p.get("title", "") for p in (shown or [])}
+    response.memory_note = "Papers cited: " + "; ".join(
+        [f"[{card_label(h.arxiv_id)}] [{h.arxiv_id}] {h.title}" for h in response.papers]
+        + [f"[{screen[pid]}] [{pid}] {titles.get(pid, '')}" for pid in cited_on_screen])
     # the agent's counterpart of the search route's [ranking] line: what the model chose to show, and from what
     diag.append(f"[ranking] Agent answer (the model chooses what to cite): cites {len(cited)} of {len(found)} "
                 f"paper(s) the tools returned -> cards {', '.join(f'[{card_label(pid)}] {pid}' for pid in cited) or 'none'}"
+                + (f"; about the papers on screen (no search, numbers kept, no new cards): "
+                   f"{', '.join(f'[{screen[pid]}] {pid}' for pid in cited_on_screen)}" if cited_on_screen else "")
                 + (f"; WARNING: unverified ids (no tool returned them): {', '.join(unverified)}" if unverified else "")
                 + ".")
     if unverified:
@@ -2072,8 +2096,9 @@ def rejected(message: str, parsed: ParsedMessage, error: str, diag_line: str) ->
 #   3. keys    : search= / title= (with optional year= / author=) run the search or title pipeline exactly as
 #                typed. Anything else goes to the agent, which decides for itself what to search or look up.
 # There are no remembered modes: each message is handled on its own (the history is still read).
-# shown / known = papers of the last result / all papers shown in the chat (the agent can read them).
-# labels = the chat's arXiv id -> number map (session_label); the papers shown in this turn are added to it.
+# shown / known = papers of the latest result (the only ones numbers refer to) / all papers shown in the chat
+# (the agent can still look those up by id). Every result is numbered from 1.
+# labels is accepted for old callers and ignored (numbers no longer run across the chat).
 # cutoff = the user's reranker cutoff (GUI slider); None = RERANK_CUTOFF.
 # diagnostics = a buffer the caller made, filled while the route runs (the GUI shows it live); None = a new one.
 # A message stopped by the input checks returns its own buffer instead.
@@ -2125,7 +2150,7 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
                          if history else "[memory] No earlier turns in this chat.")
             live = diagnostics if diagnostics is not None else Diagnostics()
             live.begin_search(question, keyword="agent", parser_notes=notes)
-            answer = run_agent(question, log, turns, shown, known, labels, diagnostics=live)
+            answer = run_agent(question, log, turns, shown, known, diagnostics=live)
             answer.prompt = message
             answer.diagnostics.finish_search(question, NUM_CTX, keyword="agent", parser_notes=notes)
             return answer
@@ -2159,11 +2184,6 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
     finally:
         stop_context_tracking()
     response.diagnostics.finish_search(query, NUM_CTX, keyword=mode, parser_notes=notes)
-    if labels is not None and not response.errors:   # chat-wide numbers for the papers shown, in display order
-        response.labels = labels
-        for hit in ([response.papers[n - 1] for n in response.top_papers]
-                    + [response.surveys[n - 1] for n in response.top_surveys]):
-            session_label(labels, hit)
     return response
 
 
@@ -2478,9 +2498,16 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
         return selection
 
     # ---- Settings panel (Chainlit's chat settings: the gear button in the message box) ----
-    # One control so far: the reranker cutoff. The value is saved per user (prefs table) and applies to all of
-    # that user's chats; every message is run with it (run_turn(cutoff=...)).
+    # Two controls: the reranker cutoff and whether diagnostics panels are shown expanded. Both are saved per user
+    # (prefs table) and apply to all of that user's chats; every message is run with the cutoff
+    # (run_turn(cutoff=...)), and every diagnostics panel starts open or closed as the switch says.
     CUTOFF_PREF = "rerank_cutoff"
+    DIAG_OPEN_PREF = gui.DIAG_OPEN_KEY   # "diagnostics_open": "1" = expanded, "0" = collapsed (the default)
+
+    # The logged-in user's saved diagnostics choice (collapsed if never set).
+    def user_diag_open() -> bool:
+        user = cl.context.session.user
+        return bool(user) and db.get_pref(user.identifier, DIAG_OPEN_PREF) == "1"
 
     # The logged-in user's saved cutoff, else the default.
     def user_cutoff() -> float:
@@ -2490,14 +2517,19 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
 
     # Show the settings panel with the user's current values (called for a new and for a reopened chat).
     async def send_settings() -> None:
-        from chainlit.input_widget import Slider
+        from chainlit.input_widget import Slider, Switch
         value = user_cutoff()
         cl.user_session.set(CUTOFF_PREF, value)
+        diag_open = user_diag_open()
+        cl.user_session.set(DIAG_OPEN_PREF, diag_open)   # read by app.diagnostics_panel for every panel
         await cl.ChatSettings([
             Slider(id=CUTOFF_PREF, label="Reranker cutoff", initial=value,
                    min=RERANK_CUTOFF_MIN, max=RERANK_CUTOFF_MAX, step=0.01,
                    description=f"Papers the reranker scores below this are dropped, in every mode. Higher = "
                                f"fewer, more relevant papers. Default {RERANK_CUTOFF}."),
+            Switch(id=DIAG_OPEN_PREF, label="Show diagnostics expanded", initial=diag_open,
+                   description="On: every diagnostics panel opens expanded. Off: panels show only their one-line "
+                               "summary until clicked. Applies from the next message, in all your chats."),
         ]).send()
 
     # The user confirmed the settings panel: keep the value for this chat and save it for the user.
@@ -2505,9 +2537,12 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
     async def gui_settings_update(settings: dict):
         value = clamp_cutoff(settings.get(CUTOFF_PREF))
         cl.user_session.set(CUTOFF_PREF, value)
+        diag_open = bool(settings.get(DIAG_OPEN_PREF, cl.user_session.get(DIAG_OPEN_PREF, False)))
+        cl.user_session.set(DIAG_OPEN_PREF, diag_open)
         user = cl.context.session.user
         if user:
             db.set_pref(user.identifier, CUTOFF_PREF, str(value))
+            db.set_pref(user.identifier, DIAG_OPEN_PREF, "1" if diag_open else "0")
 
     # Old chat reopened from the left pane: restore state, buttons and sidebar.
     @cl.on_chat_resume
@@ -2573,7 +2608,7 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
 
         # Banner and box colour show what this message runs (nothing is remembered): search= / title= as typed,
         # anything else the agent ("ask")
-        shown = gui.papers_for_message(prompt)   # last result + older papers the message names by number
+        shown = gui.papers_for_message(prompt)   # the latest result: the papers numbers refer to
         typed = None if length_problem(prompt) else parse_message(prompt, None).mode_key
         await gui.show_mode(typed if typed in ("search", "title") else "ask")
 
@@ -2588,7 +2623,6 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
             r = await cl.make_async(run_turn)(prompt, log, list(gui.history()), on_token,
                                               newest_first=newest_first, shown=shown,
                                               known=dict(cl.user_session.get("papers_by_id") or {}),
-                                              labels=gui.labels(),
                                               cutoff=clamp_cutoff(cl.user_session.get(CUTOFF_PREF, user_cutoff())),
                                               diagnostics=live_diag)
         finally:
@@ -2611,8 +2645,8 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
                 await gui.send_notice(r.answer + "".join(f"\n\n⚠️ {w}" for w in r.warnings))
                 for label, hit in gui.picked_hits(r):
                     await gui.send_paper(gui.to_paper(hit, label), selection.is_checked(hit.point_id))
-                if r.papers:
-                    gui.set_last_results(gui.picked_hits(r))   # follow-ups like 'compare 1 and 2' work
+                if r.papers:   # a new result (numbered from 1) replaces the latest one; an answer only about
+                    gui.set_last_results(gui.picked_hits(r))   # the papers on screen keeps them (r.papers empty)
         elif r.errors:
             await gui.send_notice("**Can't complete this query:**\n" + "\n".join(f"- {e}" for e in r.errors))
         else:

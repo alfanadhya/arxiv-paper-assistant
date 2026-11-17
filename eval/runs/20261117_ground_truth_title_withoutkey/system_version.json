@@ -1,16 +1,22 @@
 {
   "runner_version": "run_ground_truth v1",
-  "created": "2026-11-17T13:20:52",
-  "git_commit": "29a9193eae29394609820a4feb36e5c6d6ea05d0",
+  "created": "2026-11-17T21:00:58",
+  "git_commit": "41f36830a291714f0d5e1aab63d6809dc8d00359",
   "git_branch": "main",
   "git_dirty_files": [
-    "?? eval/data/ground_truth.jsonl",
-    "?? eval/run_ground_truth.py",
-    "?? eval/runs/20261117_ground_truth_title/"
+    "M app.py",
+    " M eval/data/ground_truth.jsonl",
+    " M eval/runs/20261117_ground_truth_title_key/records.jsonl",
+    " M eval/runs/20261117_ground_truth_title_key/report.tsv",
+    " M eval/runs/20261117_ground_truth_title_key/run_log.txt",
+    " M eval/runs/20261117_ground_truth_title_key/system_version.json",
+    " M public/elements/Diagnostics.jsx",
+    " M threeofus_main.py",
+    "?? eval/runs/20261117_ground_truth_title_withoutkey_v2/"
   ],
   "code_hashes": {
-    "threeofus_main.py": "1112928ae79fac43",
-    "retriever_hybrid_rrf.py": "7460b2df259b9d35",
+    "threeofus_main.py": "5da3a6dfa0aa9439",
+    "retriever_hybrid_rrf.py": "285c74f240f272d7",
     "prompt_cleaning.py": "6cffd7606594c724",
     "chatbot_diagnostics.py": "e3739ad6c881a1ec"
   },
@@ -63,7 +69,7 @@
     ]
   },
   "k": {
-    "k_retrieve_per_search": 26,
+    "k_retrieve_per_search": 30,
     "searches": [
       "topic (surveys split from the same hits)"
     ],
@@ -75,12 +81,12 @@
   "evidence_selection": "papers: reranker top N+1/N+2 sent to LLM, LLM picks up to 3; surveys: reranker top 5 shown without LLM",
   "prompt_hashes": {
     "DEFAULT_PROMPT": "123d4aa8f0b4f3da",
-    "ANALYZE_SYSTEM_PROMPT": "63a3812d092f7fb9",
-    "ANALYZE_TITLE_SYSTEM_PROMPT": "60b89808f7403b46",
+    "ANALYZE_SYSTEM_PROMPT": "3e9511561c9210e5",
+    "ANALYZE_TITLE_SYSTEM_PROMPT": "1b4f69b9ce9e905c",
     "REWRITE_SYSTEM_PROMPT": "bf05b198c5efc3b6",
     "REWRITE_PROMPT": "7f4c0475a3fb1ea5",
     "RANK_POOL_PROMPT": "b2265d278f4d8af6",
-    "AGENT_SYSTEM_PROMPT": "d74e622d0841d49a"
+    "AGENT_SYSTEM_PROMPT": "c086a9e5fb53de2d"
   },
   "machine": {
     "platform": "Windows-11-10.0.26300-SP0",

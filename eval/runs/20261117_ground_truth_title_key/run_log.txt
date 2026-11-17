@@ -1,30 +1,30 @@
-Run 20261117_ground_truth_title_key: 22 papers, message = the paper's title, no mode key
+Run 20261117_ground_truth_title_key_v2: 22 papers, message = the paper's title, mode key 'title='
 Loading the app, models and Qdrant connection...
 Loading the embedding models and connecting to Qdrant (http://localhost:6333, 'sebun_bge768_hybrid_full')...
 Loading the reranker BAAI/bge-reranker-base on cuda...
-0 papers already done, 22 to run. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261117_ground_truth_title_key\records.jsonl
+0 papers already done, 22 to run. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261117_ground_truth_title_key_v2\records.jsonl
 
-[1/22] 1609.02907     3.8s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[1/22] 1609.02907     4.0s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [2/22] 1606.05250     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
-[3/22] 1706.03762     0.6s  title, 1 search(es); target rank: qdrant 25, reranked 5, sent 1, selected 1
+[3/22] 1706.03762     0.4s  title, 1 search(es); target rank: qdrant 26, reranked 5, sent 1, selected 1
 [4/22] 1707.06347     0.5s  title, 1 search(es); target rank: qdrant 11, reranked 13, sent 1, selected 1
-[5/22] 1810.04805     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
-[6/22] 1802.05365     0.4s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
-[7/22] 1908.10084     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
-[8/22] 1907.11692     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[5/22] 1810.04805     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[6/22] 1802.05365     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[7/22] 1908.10084     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[8/22] 1907.11692     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [9/22] 2005.11401     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [10/22] 2004.04906     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [11/22] 2106.09685     0.5s  title, 1 search(es); target rank: qdrant 5, reranked 15, sent 1, selected 1
 [12/22] 2101.08231     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [13/22] 2201.11903     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 3, sent 1, selected 1
-[14/22] 2210.03629     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[14/22] 2210.03629     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [15/22] 2309.15217     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [16/22] 2305.18290     0.5s  title, 1 search(es); target rank: qdrant 3, reranked 1, sent 1, selected 1
-[17/22] 2405.07437     0.4s  title, 1 search(es); target rank: qdrant 4, reranked 1, sent 1, selected 1
+[17/22] 2405.07437     0.5s  title, 1 search(es); target rank: qdrant 4, reranked 1, sent 1, selected 1
 [18/22] 2402.03216     0.7s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [19/22] 2504.20119     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [20/22] 2506.05176     0.6s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [21/22] 2601.08670     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 [22/22] 2602.20091     0.5s  title, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
 
-Done in 15s. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261117_ground_truth_title_key\records.jsonl
+Done in 15s. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261117_ground_truth_title_key_v2\records.jsonl
