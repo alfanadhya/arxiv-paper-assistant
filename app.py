@@ -236,13 +236,18 @@ def open_list_button(msg_id: str | None = None) -> cl.Action:
                      id=_button_id("open-list", msg_id))
 
 
-# Markdown card for one paper.
+# Markdown card for one paper. The title starts with a chip naming the paper's number in this result ("Paper 2",
+# "Survey S1": the number to use in follow-ups such as "compare 1 and 2"), drawn by public/theme.css from the
+# inline code. Only the best match has a "why"; its link gets a marker ('#best', or '#match' for a title
+# lookup, p["best_kind"] == "title") that theme.css turns into a "Best match" / "Title match" tag on the chip.
 def paper_card(p: dict) -> str:
     authors = ", ".join(p["authors"][:3]) + (" et al." if len(p["authors"]) > 3 else "")
     why = f"_{p['why_relevant']}_\n\n" if p.get("why_relevant") else ""
-    # Only the best match has a "why"; its link gets a '#best' marker, which public/custom.js colours green
-    url = p["abs_url"] + ("#best" if p.get("why_relevant") else "")
-    return (f"### [{p['label']}] [{p['title']}]({url})\n"
+    label = str(p["label"])
+    chip = f"Survey {label}" if label.startswith("S") else f"Paper {label}"
+    marker = ("#match" if p.get("best_kind") == "title" else "#best") if p.get("why_relevant") else ""
+    url = p["abs_url"] + marker
+    return (f"### `{chip}` [{p['title']}]({url})\n"
             f"`{p['arxiv_id']}` · {p['year'] or 'year unknown'} · {authors}\n\n"
             f"{why}{p['abstract_snippet']}")
 

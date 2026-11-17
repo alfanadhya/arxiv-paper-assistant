@@ -2752,6 +2752,8 @@ button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#
             best = r.best[1] if r.best else None
             for label, hit in gui.picked_hits(r):
                 paper = gui.to_paper(hit, label, r.why_best if hit is best else "")
+                if hit is best:   # tag on the card: "Best match" (search) or "Title match" (title lookup)
+                    paper["best_kind"] = getattr(r, "mode", "search")
                 await gui.send_paper(paper, selection.is_checked(hit.point_id))
         # the live panel under the question goes away; the finished one sits under the answer (open if the
         # live one was open) and is the one saved with the chat

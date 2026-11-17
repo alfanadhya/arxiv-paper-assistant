@@ -238,6 +238,9 @@ body { font-family: var(--f-body); -webkit-font-smoothing: antialiased; backgrou
 
 /* Greeting and start-up message: no avatar (custom.js sets data-no-avatar); hidden, so the text stays aligned */
 .ai-message[data-no-avatar] > :first-child { visibility: hidden; }
+/* The Home screen takes the full column width (no avatar space), so it is centred on the same axis as the
+   message box and the usage-hint banner in the top bar */
+.ai-message[data-no-avatar]:has(.home) > :first-child { display: none; }
 
 /* ------------------------------------------------------------------ login page (public/custom.js section 11) */
 /* Top left: horizontal lockup (ring + name) instead of Chainlit's logo image */
@@ -329,8 +332,57 @@ html[data-auth-page] img.logo { display: none !important; }
   .hdr-label { display: none; }
   .hdr-short { display: inline; }
   #settings-button, #reading-list-button { margin-right: 4px !important; }
-  /* Chainlit's "Readme" button becomes a round "?" (same dialog) */
-  #readme-button { font-size: 0 !important; width: 28px; height: 28px; padding: 0 !important;
-                   border: 1px solid hsl(var(--border)); border-radius: 9999px; }
-  #readme-button::before { content: "?"; font: 600 14px var(--f-label); }
 }
+
+/* ------------------------------------------------------------------ paper number chip (app.paper_card) */
+/* "Paper 2" / "Survey S1" before each card title: the number to use in follow-ups (tooltip: custom.js 7) */
+.message-content h3 > code:first-child {
+  display: inline-block; vertical-align: 0.25em; margin-right: 8px; padding: 2px 10px !important;
+  border-radius: 9999px; border: 1px solid var(--c-line); background: var(--c-ash) !important;
+  font: 500 12px/18px var(--f-label) !important; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--c-slate); cursor: help; white-space: nowrap;
+}
+/* The best match says so in words (no coloured title): "Best match" for a search, "Title match" for title= */
+.message-content h3:has(a[href$="#best"]) > code:first-child::after { content: " · Best match"; }
+.message-content h3:has(a[href$="#match"]) > code:first-child::after { content: " · Title match"; }
+.message-content h3:has(a[href$="#best"]) > code:first-child,
+.message-content h3:has(a[href$="#match"]) > code:first-child {
+  background: #e9f6ef !important; border-color: #b7e0c8; color: var(--c-green);
+}
+
+/* ------------------------------------------------------------------ chat list: "..." menu on hover */
+/* Each chat's "..." button shows on hover or keyboard focus (and while its menu is open); always on touch */
+#thread-history #thread-options { opacity: 0; transition: opacity 0.15s; }
+#thread-history li:hover #thread-options,
+#thread-history li:focus-within #thread-options,
+#thread-history #thread-options[data-state="open"] { opacity: 1; }
+@media (hover: none) { #thread-history #thread-options { opacity: 1; } }
+
+/* ------------------------------------------------------------------ account menu (public/custom.js section 13) */
+#account-footer { position: relative; padding: 8px; border-top: 1px solid var(--c-line); }
+#account-button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: 8px;
+  background: transparent; border: 1px solid transparent; cursor: pointer; text-align: left; color: var(--c-carbon);
+}
+#account-button:hover, #account-button[aria-expanded="true"] { background: var(--c-white); border-color: var(--c-line); }
+#account-button:focus-visible { outline: 2px solid var(--c-blue); outline-offset: 2px; }
+#account-button .am-avatar {
+  flex: none; width: 28px; height: 28px; border-radius: 9999px; display: inline-flex; align-items: center;
+  justify-content: center; background: var(--c-blue); color: #fff; font: 600 13px var(--f-label);
+}
+#account-button .am-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                           font-size: 14px; font-weight: 500; }
+#account-button svg { flex: none; color: var(--c-slate); }
+#account-menu {
+  position: absolute; left: 8px; right: 8px; bottom: calc(100% - 2px); z-index: 50; padding: 4px;
+  background: var(--c-white); border: 1px solid var(--c-line); border-radius: 8px;
+}
+#account-menu[hidden] { display: none; }
+#account-menu .am-who { padding: 8px 10px; font-size: 12px; color: var(--c-slate); border-bottom: 1px solid var(--c-line);
+                        margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#account-menu .am-who b { color: var(--c-carbon); font-weight: 500; }
+#account-menu [role="menuitem"] {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px;
+  background: transparent; font-size: 14px; color: var(--c-carbon); cursor: pointer; text-align: left;
+}
+#account-menu [role="menuitem"]:hover, #account-menu [role="menuitem"]:focus-visible { background: var(--c-ash); outline: none; }

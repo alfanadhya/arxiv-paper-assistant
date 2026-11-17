@@ -182,19 +182,19 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   const tabStyle = document.createElement("style");
   tabStyle.textContent = `
     #reading-list-button { display:inline-flex; align-items:center; gap:6px; margin:0 8px 0 0;
-      padding:4px 6px 4px 10px; font-size:14px; white-space:nowrap; cursor:pointer; color:inherit;
-      background:transparent; border:1px solid hsl(var(--border, 0 0% 80%)); border-radius:6px;
-      transition:background .15s, border-color .15s; }
-    #reading-list-button:hover { border-color: var(--c-carbon, #000); }
+      padding:4px 6px 4px 10px; font-size:14px; font-weight:500; white-space:nowrap; cursor:pointer;
+      color:#fff; background:hsl(var(--primary, 240 100% 50%)); border:1px solid hsl(var(--primary, 240 100% 50%));
+      border-radius:6px; transition:background .15s, border-color .15s; }
+    #reading-list-button:hover { background:#0000cc; border-color:#0000cc; }
     #reading-list-button:focus-visible { outline:2px solid hsl(var(--primary, 240 100% 50%)); outline-offset:2px; }
-    #reading-list-button[data-open="true"] { background: var(--c-ash, #f2f2f2); border-color: var(--c-carbon, #000); }
+    #reading-list-button[data-open="true"] { background:#000099; border-color:#000099; }
     #reading-list-button .rl-badge { min-width:20px; height:20px; padding:0 6px; border-radius:9999px;
       display:inline-flex; align-items:center; justify-content:center; font:600 12px var(--f-label, system-ui);
-      background: var(--c-ash, #f2f2f2); color: var(--c-slate, #717886); }
-    #reading-list-button:not([data-count="0"]) .rl-badge { background: hsl(var(--primary, 240 100% 50%)); color:#fff; }
+      background: rgba(255,255,255,.25); color:#fff; }
+    #reading-list-button:not([data-count="0"]) .rl-badge { background:#fff; color: hsl(var(--primary, 240 100% 50%)); }
     #reading-list-button.rl-pulse .rl-badge { animation: rl-pulse .6s ease-out; }
-    @keyframes rl-pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0,0,255,.45); }
-      40% { transform: scale(1.25); } 100% { transform: scale(1); box-shadow: 0 0 0 8px rgba(0,0,255,0); } }
+    @keyframes rl-pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,.8); }
+      40% { transform: scale(1.3); } 100% { transform: scale(1); box-shadow: 0 0 0 8px rgba(255,255,255,0); } }
     @media (max-width: 640px) { #reading-list-button .rl-label { display:none; } }`;
   document.head.appendChild(tabStyle);
 
@@ -364,25 +364,29 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     }
   }
 
-  // The banner sits in the middle of the top bar's free space (between the button groups on the left and on
-  // the right: Newest first, Settings, Reading list, ...), so it never covers them. It is cut with "..." when
-  // the space is short and hidden when even a short pill would not fit.
+  // The banner is centred on the chat column, on the same axis as the Home screen and the message box (the
+  // top bar is a little wider than that column). It never covers the buttons on either side (Newest first, Settings,
+  // Reading list, ...): it is cut with "..." when the space around the middle is short, and hidden when even a
+  // short pill would not fit.
   function fit(header, banner) {
     const box = header.getBoundingClientRect();
-    const mid = box.left + box.width / 2;
-    let from = box.left, to = box.right;   // free span of the top bar
+    const column = document.getElementById("message-composer");
+    const c = column && column.getBoundingClientRect();
+    const mid = c && c.width ? c.left + c.width / 2 : box.left + box.width / 2;
+    let room = Math.min(mid - box.left, box.right - mid);   // free space from the axis to the nearest group
     for (const el of header.children) {
       if (el === banner) continue;
       const r = el.getBoundingClientRect();
       if (!r.width) continue;
-      if (r.left + r.width / 2 <= mid) from = Math.max(from, r.right);
-      else to = Math.min(to, r.left);
+      if (r.right <= mid) room = Math.min(room, mid - r.right);
+      else if (r.left >= mid) room = Math.min(room, r.left - mid);
+      else room = 0;
     }
-    const max = Math.floor(to - from - 24);
+    const max = Math.floor(2 * (room - 12));
     const display = max < 160 ? "none" : "";
     if (banner.style.display !== display) banner.style.display = display;
     if (display) return;
-    const left = Math.round((from + to) / 2 - box.left) + "px";
+    const left = Math.round(mid - box.left) + "px";
     if (banner.style.left !== left) banner.style.left = left;
     if (banner.style.maxWidth !== max + "px") banner.style.maxWidth = max + "px";
   }
@@ -418,6 +422,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
       const greeting = !!msg.querySelector(".home") || text.startsWith("Hi! Ask in your own words");
       // the start-up status panel (Status.jsx), or the plain-text check line of older chats
       const plain = greeting || !!msg.querySelector(".startup-status") ||
+                    !!msg.querySelector('img[alt="Avatar for diagnostics"]') ||   // diagnostics panels
                     (afterGreeting && /^(Checking the models|Loading|Ready\.|Setup failed)/.test(text));
       if (plain !== msg.hasAttribute("data-no-avatar")) msg.toggleAttribute("data-no-avatar", plain);
       afterGreeting = greeting;
@@ -428,24 +433,20 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   mark();
 })();
 
-// 7. Green "Best match:" heading in the result summary (app.summary_md writes it as **Best match:**; messages
-//    are Markdown without HTML, so the colour is set here), and a green title on the best match's card.
+// 7. Paper number chips: each card title starts with a chip ("Paper 2", "Survey S1"; app.paper_card, drawn by
+//    public/theme.css, which also adds "Best match" / "Title match" to the best one instead of colouring the
+//    title). Here the chip gets a tooltip saying what the number is for.
 (function () {
-  const GREEN = "#098551";   // DESIGN.md "Wireframe Green"
-  // The best match's card title: its arXiv link ends in '#best' (app.paper_card)
-  const style = document.createElement("style");
-  style.textContent = `a[href$="#best"] { color: ${GREEN} !important; }`;
-  document.head.appendChild(style);
-  function colour() {
-    document.querySelectorAll("strong:not([data-best-match])").forEach((el) => {
-      if (el.textContent.trim() === "Best match:") {
-        el.setAttribute("data-best-match", "1");
-        el.style.color = GREEN;
-      }
+  function hint() {
+    document.querySelectorAll(".message-content h3 > code:first-child:not([title])").forEach((el) => {
+      const m = /^(?:Paper|Survey) (S?\d+)$/.exec(el.textContent.trim());
+      if (!m) return;
+      el.title = `Use “${m[1]}” to ask about this paper, e.g. “compare ${m[1]} and ` +
+                 `${m[1] === "1" ? "2" : "1"}” or “summarize ${m[1]}”`;
     });
   }
-  new MutationObserver(colour).observe(document.documentElement, { childList: true, subtree: true });
-  colour();
+  new MutationObserver(hint).observe(document.documentElement, { childList: true, subtree: true });
+  hint();
 })();
 
 // 8. Resizable left pane (the chat list). Chainlit gives it a fixed width through the CSS variable
@@ -809,4 +810,108 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
 
   new MutationObserver(() => { if (waiting) apply(); })
     .observe(document.documentElement, { childList: true, subtree: true });
+})();
+
+// 13. Account menu at the bottom of the left pane, in place of Chainlit's avatar button in the top bar: the
+//     user's initial and name; a click opens a small menu with "Readme" (Chainlit's readme dialog, its top-bar
+//     button is hidden and clicked from here) and "Log out" (Chainlit's POST /logout, then the login page).
+//     Styles: public/theme.css ("account menu").
+(function () {
+  const hide = document.createElement("style");
+  hide.textContent = "#user-nav-button, #readme-button { display: none !important; }";
+  document.head.appendChild(hide);
+
+  // The signed-in user's name (GET /user). Asked when the pane is first shown after signing in: the script is
+  // loaded on the login page already, where there is no user yet.
+  let name = "";
+  let asking = false;
+  function askName() {
+    if (name || asking) return;
+    asking = true;
+    fetch("/user", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => { name = (u && (u.display_name || u.identifier)) || ""; update(); })
+      .catch(() => {})
+      .finally(() => { asking = false; });
+  }
+
+  const ICON_BOOK = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 ' +
+    '4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>';
+  const ICON_OUT = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 ' +
+    '5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>';
+  const ICON_UP = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5-5 ' +
+    '5 5"/></svg>';
+
+  const footer = document.createElement("div");
+  footer.id = "account-footer";
+  footer.innerHTML =
+    '<div id="account-menu" role="menu" aria-label="Account" hidden>' +
+    '<div class="am-who">Signed in as <b class="am-name-menu"></b></div>' +
+    '<button type="button" role="menuitem" data-act="readme">' + ICON_BOOK + "<span>Readme</span></button>" +
+    '<button type="button" role="menuitem" data-act="logout">' + ICON_OUT + "<span>Log out</span></button>" +
+    "</div>" +
+    '<button type="button" id="account-button" aria-haspopup="menu" aria-expanded="false">' +
+    '<span class="am-avatar" aria-hidden="true"></span><span class="am-name"></span>' + ICON_UP + "</button>";
+  const menu = footer.querySelector("#account-menu");
+  const button = footer.querySelector("#account-button");
+
+  function update() {
+    const shown = name || "Account";
+    footer.querySelector(".am-avatar").textContent = (name || "?").charAt(0).toUpperCase();
+    footer.querySelector(".am-name").textContent = shown;
+    footer.querySelector(".am-name-menu").textContent = shown;
+    button.setAttribute("aria-label", `Account: ${shown}`);
+  }
+  update();
+
+  function setOpen(open) {
+    menu.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) {
+      const first = menu.querySelector("[role=menuitem]");
+      if (first) first.focus();
+    }
+  }
+  button.addEventListener("click", () => setOpen(menu.hidden));
+  menu.addEventListener("click", (event) => {
+    const item = event.target.closest("[data-act]");
+    if (!item) return;
+    setOpen(false);
+    if (item.dataset.act === "readme") {
+      const readme = document.getElementById("readme-button");
+      if (readme) readme.click();
+    } else if (item.dataset.act === "logout") {
+      fetch("/logout", { method: "POST", credentials: "include" })
+        .catch(() => {})
+        .finally(() => window.location.assign("/login"));
+    }
+  });
+  // Close on Escape (focus back on the button), on a click elsewhere; arrow keys move between the items
+  footer.addEventListener("keydown", (event) => {
+    if (menu.hidden) return;
+    const items = [...menu.querySelectorAll("[role=menuitem]")];
+    const i = items.indexOf(document.activeElement);
+    if (event.key === "Escape") { setOpen(false); button.focus(); }
+    else if (event.key === "ArrowDown") { event.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!menu.hidden && !footer.contains(event.target)) setOpen(false);
+  });
+
+  // Keep the footer at the bottom of the left pane (also in the phone sheet); never on login / sign-up
+  function mount() {
+    if (location.pathname.startsWith("/login") || location.pathname.startsWith("/signup")) {
+      if (footer.isConnected) footer.remove();
+      return;
+    }
+    const pane = document.querySelector('[data-sidebar="sidebar"]');
+    if (pane && footer.parentElement !== pane) pane.appendChild(footer);
+    if (pane) askName();
+  }
+  new MutationObserver(mount).observe(document.documentElement, { childList: true, subtree: true });
+  mount();
 })();

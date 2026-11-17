@@ -34,7 +34,7 @@ Notes on how `threeofus_main.py` and its helper files work, for whoever changes 
 | `app.py` | GUI helpers: paper cards, Select buttons, reading-list panel, mode banner, session state, chat resume. Never imports `threeofus_main.py` |
 | `db.py` | `history.db` schema, accounts, preferences, the per-user data layer (`CleanupDataLayer`), account commands |
 | `export.py` | Everything Export writes: selected-chunks JSONL and the BibTeX + PDF zip |
-| `public/custom.js` | Page tweaks: toasts, fresh chat after deleting all chats, reading-list tab, Newest first box, mode banner, green best match, sign-up link |
+| `public/custom.js` | Page tweaks: toasts, fresh chat after deleting all chats, top-bar Reading list button with count, Newest first box, usage-hint banner + per-message input border, paper number chips (tooltip), account menu in the left pane (Readme, Log out), start-up wait in the message box, branded login page, sign-up link |
 | `public/elements/ReadingList.jsx`, `Diagnostics.jsx` | The reading-list panel and the diagnostics panel |
 
 ## One message, step by step (`run_turn`)
