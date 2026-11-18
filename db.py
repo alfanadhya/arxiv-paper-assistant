@@ -262,6 +262,32 @@ def create_account(username: str, password: str) -> str:
     return name
 
 
+# ---- Self sign-up with a limit (the /signup page). An account made there gets the pref "signed_up" (its date,
+# in the prefs table, so the schema does not change); accounts made by an admin (adduser / set_account) do not,
+# so they never count. A deleted account frees its place (only signed_up rows that still have an account count).
+SIGNUP_PREF = "signed_up"
+_signup_lock = __import__("threading").Lock()   # the app is one process: check + create can't interleave
+
+
+def signup_count() -> int:
+    create_tables()
+    with engine().connect() as conn:
+        return conn.execute(text('SELECT COUNT(*) FROM prefs p JOIN accounts a ON a."username" = p."username" '
+                                 'WHERE p."key" = :k'), {"k": SIGNUP_PREF}).scalar_one()
+
+
+# Create an account from the sign-up page; limit = most self-made accounts (None = no limit).
+# Raises ValueError (shown on the page) when the places are taken, or for the usual username/password rules.
+def create_signup_account(username: str, password: str, limit: int | None = None) -> str:
+    from datetime import datetime, timezone
+    with _signup_lock:
+        if limit is not None and signup_count() >= limit:
+            raise ValueError("Sign-up is full: all places are taken.")
+        name = create_account(username, password)
+        set_pref(name, SIGNUP_PREF, datetime.now(timezone.utc).isoformat())
+    return name
+
+
 # Remove the login only; the user's chats stay in the database (re-adding the name gives them back).
 def delete_account(username: str) -> bool:
     create_tables()

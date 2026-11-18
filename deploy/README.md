@@ -22,7 +22,8 @@ The same code runs in both places; only `.env` differs. New settings on this bra
 | `LLM_PROVIDER` | `ollama` / `groq` | `ollama` | `groq` |
 | `GROQ_API_KEY` | key from console.groq.com | - | set |
 | `GROQ_MODEL` | any model your key can use | `qwen/qwen3.8-27b` | default |
-| `ALLOW_SIGNUP` | `1` / `0` | `1` | `0` |
+| `ALLOW_SIGNUP` | `1` / `0` | `1` | `1` |
+| `SIGNUP_LIMIT` | most accounts the sign-up page may create (`adduser` accounts don't count) | empty = no limit | `12` |
 | `DB_BACKEND` | `sqlite` / `postgres` | `sqlite` | default (sqlite) |
 | `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | Postgres URL | - | not used |
 
@@ -85,7 +86,8 @@ rsync -a --delete --exclude ".git/" --exclude "models_cache/" --exclude "history
 scp -i ~/.ssh/arxiv_azure .env azureuser@<VM-IP>:/data/app/.env
 ```
 
-Then on the VM: `chmod 600 /data/app/.env`, set `LLM_PROVIDER=groq` and `ALLOW_SIGNUP=0`, and make sure no
+Then on the VM: `chmod 600 /data/app/.env`, set `LLM_PROVIDER=groq`, `ALLOW_SIGNUP=1` and `SIGNUP_LIMIT=12`
+(or `ALLOW_SIGNUP=0` to close sign-up), and make sure no
 `DB_BACKEND=postgres` line is there. Files copied from Windows arrive with mode 777; fix them:
 
 ```bash

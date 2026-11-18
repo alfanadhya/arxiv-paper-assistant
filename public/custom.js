@@ -609,7 +609,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     box.style.cssText = "text-align:center;font-size:14px;margin-top:4px;";
     if (new URLSearchParams(location.search).get("signup") === "ok") {
       const note = document.createElement("div");
-      note.textContent = "Account created. You can log in now.";
+      note.textContent = "Account created. You can sign in now.";
       note.style.cssText = "color:#16a34a;margin-bottom:6px;";
       box.appendChild(note);
     }
