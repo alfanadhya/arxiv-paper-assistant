@@ -2570,20 +2570,48 @@ color:var(--err);font-size:14px;line-height:1.5}
 color:var(--slate)}
 .alt{text-align:center;font-size:14px;margin:0}
 .alt a{color:var(--carbon);text-decoration:underline;text-underline-offset:3px}
+.notice{margin:0;font-size:12px;line-height:1.5;color:var(--slate);text-align:center}
+.box.wide{max-width:960px;gap:20px;align-self:flex-start}
+.wide h1{text-align:left}.wide .sub{text-align:left}
+.crumbs{font-size:13px;color:var(--slate)}.crumbs a{color:var(--carbon)}
+.stats{display:flex;gap:12px;flex-wrap:wrap}
+.stats div{flex:1;min-width:150px;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.stats b{display:block;font:600 20px var(--f-head)}.stats span{font-size:12px;color:var(--slate)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font:500 12px var(--f-label);letter-spacing:.06em;text-transform:uppercase;color:var(--slate);background:#f7f7f8}
+tr:last-child td{border-bottom:0}td a{color:var(--carbon)}.num{text-align:right}
+td:first-child{white-space:normal;min-width:180px}
+h2{font:600 14px var(--f-body);margin:0 0 8px}
+.rl{border:1px solid var(--line);border-radius:8px;padding:12px 14px}.rl ul{margin:0;padding-left:18px}
+.rl li{margin:4px 0;font-size:14px}.rl a{color:var(--carbon)}
+code{font-size:12px;background:var(--ash);padding:1px 6px;border-radius:4px}
+.msg{border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.msg.user{background:#f7f7f8}.who{font:500 12px var(--f-label);letter-spacing:.04em;color:var(--slate);
+text-transform:uppercase;margin-bottom:6px}
+.text{white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.6}
+.diag summary{cursor:pointer;font-size:13px;color:var(--slate)}
+.diag ul{margin:8px 0 0;padding-left:18px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace}
+.diag li{margin:2px 0;word-break:break-word}
 """
 
     # One sign-up page: the lockup at the top left, then the given body in a 320px column (like the login form).
-    def _signup_html(body: str, status_code: int = 200) -> HTMLResponse:
+    # wide=True: a 960px column for tables and chats (the admin panel).
+    def _signup_html(body: str, status_code: int = 200, wide: bool = False,
+                     title: str = "Create an account") -> HTMLResponse:
         return HTMLResponse(
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Create an account</title>'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>{_html.escape(title)}</title>'
             '<link rel="preconnect" href="https://fonts.googleapis.com">'
             '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
             '&family=Manrope:wght@600;700&family=Space+Grotesk:wght@400;500&display=swap">'
             f'<style>{_SIGNUP_STYLE}</style></head><body>'
             f'<div class="top"><a class="brand" href="/login" aria-label="arXiv Paper Assistant">{_SIGNUP_RING}'
             '<span>arXiv Paper Assistant</span></a></div>'
-            f'<main><div class="box">{body}</div></main></body></html>', status_code=status_code)
+            f'<main><div class="box{" wide" if wide else ""}">{body}</div></main></body></html>',
+            status_code=status_code)
 
     # Places left on the sign-up page ("3 of 12 places left"); None when there is no limit.
     def _signup_places() -> str | None:
@@ -2614,6 +2642,7 @@ autocomplete="new-password"></label>
 <span class="hint">At least {db.MIN_PASSWORD} characters</span>
 <label>Repeat password<input name="password2" type="password" required autocomplete="new-password"></label>
 <button type="submit">Create account</button>
+<p class="notice">Chats are stored and may be reviewed by the course team to evaluate the system.</p>
 </form>
 <p class="alt">Already have an account? <a href="/login">Sign in</a></p>""")
 
@@ -2671,13 +2700,133 @@ autocomplete="new-password"></label>
         db.set_pref(current_user.identifier, NEWEST_FIRST_PREF, "1" if value else "0")
         return JSONResponse({"value": value})
 
-    _OWN_ROUTES = ("/signup", "/signup-enabled", "/prefs/newest-first")
+    # ---- Admin panel (/admin): read-only views of the accounts and their chats, for evaluating the system.
+    # Only the accounts named in ADMIN_USERS (env, comma-separated) may open it; empty = nobody. Pages are plain
+    # HTML from this server in the sign-up pages' style; nothing here changes data. Not signed in -> /login.
+    ADMIN_USERS = {db.normalize_username(n) for n in os.getenv("ADMIN_USERS", "").split(",") if n.strip()}
+    _NO_STORE = {"Cache-Control": "no-store"}   # the user list is not kept in the browser's cache
+
+    # The signed-in user, or None (no or invalid login cookie) instead of Chainlit's 401.
+    async def _optional_user(request: Request):
+        from chainlit.auth import reuseable_oauth
+        try:
+            return await get_current_user(await reuseable_oauth(request))
+        except HTTPException:
+            return None
+
+    def _is_admin(user) -> bool:
+        return bool(user) and db.normalize_username(user.identifier) in ADMIN_USERS
+
+    def _when(value) -> str:   # "2026-11-18 07:21" from an ISO time
+        text = str(value or "")
+        return text[:16].replace("T", " ") if text else "–"
+
+    def _admin_page(title: str, body: str, status_code: int = 200) -> HTMLResponse:
+        page = _signup_html(body, status_code=status_code, wide=True, title=f"{title} · Admin")
+        page.headers.update(_NO_STORE)
+        return page
+
+    def _admin_denied() -> HTMLResponse:
+        return _admin_page("Admins only", '<div><h1>Admins only</h1><p class="sub">This page is for the people who '
+                           'run this app.</p></div><a class="btn" href="/">Back to the app</a>', status_code=403)
+
+    def _crumbs(*parts: tuple[str, str | None]) -> str:
+        items = [f'<a href="{_html.escape(href)}">{_html.escape(label)}</a>' if href else _html.escape(label)
+                 for label, href in parts]
+        return '<nav class="crumbs">' + " / ".join(items) + "</nav>"
+
+    async def gui_admin_check(request: Request):
+        return JSONResponse({"admin": _is_admin(await _optional_user(request))}, headers=_NO_STORE)
+
+    async def gui_admin(request: Request):
+        user = await _optional_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        if not _is_admin(user):
+            return _admin_denied()
+        rows = db.account_overview()
+        used = db.signup_count()
+        if not ALLOW_SIGNUP:
+            state = "closed"
+        elif SIGNUP_LIMIT is not None and used >= SIGNUP_LIMIT:
+            state = "full"
+        else:
+            state = "open"
+        places = f"{used} of {SIGNUP_LIMIT}" if SIGNUP_LIMIT is not None else f"{used} (no limit)"
+        table = "".join(
+            f'<tr><td><a href="/admin/user/{_html.escape(r["username"])}">{_html.escape(r["username"])}</a></td>'
+            f'<td>{"sign-up" if r["signed_up"] else "admin"}</td><td>{_when(r["joined"])}</td>'
+            f'<td class="num">{r["chats"]}</td><td>{_when(r["last_chat"])}</td></tr>' for r in rows)
+        body = (f'{_crumbs(("Admin", None))}<div><h1>Accounts</h1></div>'
+                f'<div class="stats"><div><b>{len(rows)}</b><span>accounts</span></div>'
+                f'<div><b>{places}</b><span>sign-up places used</span></div>'
+                f'<div><b>{state}</b><span>sign-up</span></div></div>'
+                '<div class="scroll"><table><thead><tr><th>Username</th><th>Created by</th><th>Joined (UTC)</th>'
+                f'<th class="num">Chats</th><th>Last chat (UTC)</th></tr></thead><tbody>{table}</tbody></table></div>'
+                '<p class="alt"><a href="/">Back to the app</a></p>')
+        return _admin_page("Accounts", body)
+
+    async def gui_admin_user(request: Request, name: str):
+        user = await _optional_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        if not _is_admin(user):
+            return _admin_denied()
+        threads = db.user_threads(name)
+        rows = "".join(
+            f'<tr><td><a href="/admin/chat/{_html.escape(t["id"])}">{_html.escape(t["title"])}</a></td>'
+            f'<td>{_when(t["started"])}</td><td class="num">{t["questions"]}</td></tr>' for t in threads)
+        empty = '<p class="sub">No chats yet.</p>' if not threads else ""
+        body = (f'{_crumbs(("Admin", "/admin"), (name, None))}<div><h1>{_html.escape(name)}</h1>'
+                f'<p class="sub">{len(threads)} chat{"" if len(threads) == 1 else "s"}</p></div>{empty}'
+                + ('<div class="scroll"><table><thead><tr><th>Chat</th><th>Started (UTC)</th>'
+                   f'<th class="num">Questions</th></tr></thead><tbody>{rows}</tbody></table></div>' if threads else ""))
+        return _admin_page(name, body)
+
+    async def gui_admin_chat(request: Request, thread_id: str):
+        user = await _optional_user(request)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        if not _is_admin(user):
+            return _admin_denied()
+        chat = db.thread_messages(thread_id)
+        if chat is None:
+            return _admin_page("Not found", '<div><h1>Chat not found</h1></div><a class="btn" href="/admin">'
+                               'Back to admin</a>', status_code=404)
+        owner = chat["owner"] or "?"
+        reading = "".join(f'<li><a href="https://arxiv.org/abs/{_html.escape(str(p["arxiv_id"]))}" target="_blank" '
+                          f'rel="noopener">{_html.escape(str(p["title"]))}</a> <code>{_html.escape(str(p["arxiv_id"]))}'
+                          '</code></li>' for p in chat["reading_list"])
+        parts = []
+        for m in chat["messages"]:
+            if m["who"] == "diagnostics":
+                notes = "".join(f"<li>{_html.escape(n)}</li>" for n in m["notes"])
+                parts.append(f'<details class="msg diag"><summary>Diagnostics ({len(m["notes"])} notes)</summary>'
+                             f'<ul>{notes}</ul></details>')
+            else:
+                who = _html.escape(m.get("name") or "user") if m["who"] == "user" else "assistant"
+                parts.append(f'<div class="msg {m["who"]}"><div class="who">{who} · {_when(m["time"])}</div>'
+                             f'<div class="text">{_html.escape(m["text"])}</div></div>')
+        body = (f'{_crumbs(("Admin", "/admin"), (owner, "/admin/user/" + owner), ("chat", None))}'
+                f'<div><h1>{_html.escape(chat["title"])}</h1><p class="sub">{_html.escape(owner)} · started '
+                f'{_when(chat["started"])} · read-only</p></div>'
+                f'<section class="rl"><h2>Reading list ({len(chat["reading_list"])})</h2>'
+                + (f'<ul>{reading}</ul>' if reading else '<p class="sub">Empty.</p>') + '</section>'
+                + ("".join(parts) or '<p class="sub">No messages.</p>'))
+        return _admin_page(chat["title"], body)
+
+    _OWN_ROUTES = ("/signup", "/signup-enabled", "/prefs/newest-first", "/admin", "/admin/check",
+                   "/admin/user/{name}", "/admin/chat/{thread_id}")
     _server.router.routes[:] = [r for r in _server.router.routes if getattr(r, "path", None) not in _OWN_ROUTES]
     _server.add_api_route("/signup", gui_signup_form, methods=["GET"], response_class=HTMLResponse)
     _server.add_api_route("/signup", gui_signup, methods=["POST"])
     _server.add_api_route("/signup-enabled", gui_signup_enabled, methods=["GET"])
     _server.add_api_route("/prefs/newest-first", gui_get_newest_first, methods=["GET"])
     _server.add_api_route("/prefs/newest-first", gui_set_newest_first, methods=["POST"])
+    _server.add_api_route("/admin", gui_admin, methods=["GET"], response_class=HTMLResponse)
+    _server.add_api_route("/admin/check", gui_admin_check, methods=["GET"])
+    _server.add_api_route("/admin/user/{name}", gui_admin_user, methods=["GET"], response_class=HTMLResponse)
+    _server.add_api_route("/admin/chat/{thread_id}", gui_admin_chat, methods=["GET"], response_class=HTMLResponse)
     # stable sort: our routes go in front of Chainlit's catch-all UI route
     _server.router.routes.sort(key=lambda r: getattr(r, "path", None) not in _OWN_ROUTES)
 
