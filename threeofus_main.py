@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Callable
@@ -579,6 +580,68 @@ def validate(text: str, a: QueryAnalysis, keep_wording: bool = False, trusted_me
         diag.append(f"[analysis] OK, query cleaned: '{text.strip()}' -> '{topic}' (spelling/filler fixed).")
 
     return QueryCheck(analysis=a, errors=errors, warnings=warnings, diagnostics=diag)
+
+
+# --------------------------------------------------------------------------- failure causes
+# Why a call to Qdrant (or the LLM API) failed, in words, for the diagnostics panel, error messages and the
+# agent's tool results. The clients wrap the real cause (qdrant_client's ResponseHandlingException keeps it in
+# .source), so the whole chain is searched. Returns (kind, text); kind is one of
+#   "timeout"      connected, but no answer within the client's time limit (a slow query; seconds = how long
+#                  the call waited)
+#   "unreachable"  could not connect: refused, host not reachable, connection dropped, or no connection within
+#                  the time limit (on Windows a closed port shows up as a connect timeout)
+#   "rate_limit"   HTTP 429 (e.g. Groq's tokens-per-minute limit)
+#   "access"       HTTP 401 / 403 (key or permission)
+#   "not_found"    HTTP 404 (e.g. a collection or model name that does not exist)
+#   "server"       HTTP 5xx
+#   "http"         any other HTTP error status
+#   "malformed"    an answer arrived but could not be read (bad JSON, unexpected shape)
+#   "error"        anything else (type and message as they are)
+# Only runs after a failure: no cost on calls that work.
+def describe_failure(exc: BaseException, seconds: float | None = None) -> tuple[str, str]:
+    import httpx
+    from pydantic import ValidationError
+    chain, seen, e = [], set(), exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        chain.append(e)
+        e = getattr(e, "source", None) or e.__cause__ or e.__context__
+    after = f" after {seconds:.1f} s" if seconds is not None else ""
+    name = type(exc).__name__
+    if any(isinstance(c, httpx.ConnectTimeout) for c in chain):
+        return "unreachable", (f"could not connect{after}: server down, wrong address or blocked by a firewall "
+                               f"({name})")
+    if any(isinstance(c, (httpx.TimeoutException, TimeoutError)) or "timed out" in str(c).lower() for c in chain):
+        return "timeout", f"timeout: connected, but no answer{after} ({name})"
+    if any(isinstance(c, (httpx.ConnectError, httpx.RemoteProtocolError, ConnectionError)) for c in chain):
+        return "unreachable", f"connection refused or dropped{after}: server down or wrong address ({name})"
+    for c in chain:
+        status = getattr(c, "status_code", None)
+        if isinstance(status, int) and status >= 400:
+            if status == 429:
+                return "rate_limit", f"rate limit: HTTP 429, too many requests or tokens per minute ({name})"
+            if status in (401, 403):
+                return "access", f"access denied: HTTP {status}, check the key or permissions ({name})"
+            if status == 404:
+                return "not_found", f"not found: HTTP 404, wrong collection or model name? ({name})"
+            if status >= 500:
+                return "server", f"server error: HTTP {status} ({name})"
+            return "http", f"HTTP {status} ({name})"
+    if any(isinstance(c, (json.JSONDecodeError, ValidationError, httpx.DecodingError)) for c in chain):
+        return "malformed", f"malformed answer: the response could not be read ({name})"
+    return "error", f"{name}: {str(exc)[:200]}"
+
+
+# Tool result the agent's model gets when a tool call failed: the cause, and for failures a retry cannot fix
+# right away (database down or slow, limits) an instruction not to call the tool again in this turn, so the
+# model does not loop on the same failing call (which also burns LLM rounds and API quota).
+def tool_failure_result(kind: str, text: str) -> str:
+    stop = kind in ("timeout", "unreachable", "rate_limit", "access", "not_found", "server", "malformed")
+    return json.dumps({"error": f"Tool failed: {text}.",
+                       "retry": not stop,
+                       "instruction": ("Do not call this tool again for this question. Answer from the papers you "
+                                       "already have and tell the user that looking up more papers failed."
+                                       if stop else "You may try once more with different arguments.")})
 
 
 # --------------------------------------------------------------------------- models / chains
@@ -1359,6 +1422,7 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
             "[validation] Author filter: " + "; ".join(
                 f"{n} -> {c[0]} in {list(c[1])}" for n, c in
                 ((n, author_condition(n)) for n in a.authors) if c) + ".")
+    started = time.perf_counter()
     try:
         paper_pool, survey_pool, origin = search_papers(a, response.survey_focus, log)
         used_initials = any(author_condition(n) and author_condition(n)[0] == "author_keys" for n in a.authors)
@@ -1375,7 +1439,9 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
                     f"the same last name: {', '.join(matched)}. These may be different people.")
                 response.diagnostics.append(f"[validation] Last-name-only matches: {', '.join(matched)}.")
     except Exception as exc:
-        response.errors.append(f"Qdrant search failed: {type(exc).__name__}: {exc}")
+        _, why = describe_failure(exc, time.perf_counter() - started)
+        response.errors.append(f"Qdrant search failed ({why}).")
+        response.diagnostics.append(f"[search] Qdrant search FAILED: {why}.")
         return response
     # The filters exactly as Qdrant used them (after validation and the last-name retry): ranking LLM context
     response.filters = describe_filters(a) + (" (authors matched by last name only)"
@@ -1492,6 +1558,7 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
 
     # Candidates from the hybrid search on the title. Years/authors are NOT filters here (only soft bonuses);
     # an explicit 'category: ...' is a filter, dropped again if it leaves nothing.
+    started = time.perf_counter()
     try:
         retriever = get_retriever(log)
         filters = MetadataIntent(category=a.category)
@@ -1505,7 +1572,9 @@ def run_title_query(title: str, log: LogFn = lambda msg: print(msg, flush=True),
                 response.warnings.append("No match in the given category, so it was ignored.")
                 hits = retriever.retrieve(a.corrected_query, K_TITLE, MetadataIntent(), sparse_query=typed)
     except Exception as exc:
-        response.errors.append(f"Qdrant search failed: {type(exc).__name__}: {exc}")
+        _, why = describe_failure(exc, time.perf_counter() - started)
+        response.errors.append(f"Qdrant search failed ({why}).")
+        diag.append(f"[search] Title lookup FAILED: {why}.")
         return response
     if not hits:
         response.errors.append(f"No paper found for the title '{a.corrected_query}'.")
@@ -2030,12 +2099,14 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
             for call in ai.tool_calls:
                 calls[call["name"]] = calls.get(call["name"], 0) + 1
                 tool = by_name.get(call["name"])
+                started = time.perf_counter()
                 try:
                     result = tool.invoke(call.get("args") or {}) if tool else json.dumps(
                         {"error": f"Unknown tool {call['name']}."})
                 except Exception as exc:
-                    result = json.dumps({"error": f"{type(exc).__name__}: {exc}"})
-                    steps.append(f"[agent] {call['name']}({call.get('args')}) -> FAILED ({type(exc).__name__}).")
+                    kind, why = describe_failure(exc, time.perf_counter() - started)
+                    result = tool_failure_result(kind, why)
+                    steps.append(f"[agent] {call['name']}({call.get('args')}) -> FAILED: {why}.")
                 messages.append(ToolMessage(content=str(result), tool_call_id=call.get("id") or call["name"]))
         else:
             log("Writing the answer...")
@@ -2047,8 +2118,9 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
             rounds += 1
             answer = strip_thinking(ai.content if isinstance(ai.content, str) else str(ai.content))
     except Exception as exc:
-        response.errors.append(f"The research assistant failed ({type(exc).__name__}: {exc}).")
-        steps.append(f"[agent] FAILED ({type(exc).__name__}: {str(exc)[:200]}).")
+        _, why = describe_failure(exc)
+        response.errors.append(f"The research assistant failed ({why}).")
+        steps.append(f"[agent] FAILED: {why}.")
     finally:
         stop_context_tracking()
     # one line with the size of the turn: LLM rounds, searches run and the other tool calls

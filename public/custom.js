@@ -82,6 +82,15 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     const buttons = document.querySelectorAll('button[id^="open-list-"]');
     if (buttons.length) {
       buttons[buttons.length - 1].click();
+      // In a brand-new chat this click is its first interaction: the server creates the chat and Chainlit moves
+      // the page from "/" to "/thread/<id>", which closes the panel it just opened. Open it once more then.
+      const before = location.pathname;
+      setTimeout(() => {
+        if (location.pathname !== before && !panelOpen()) {
+          const again = document.querySelectorAll('button[id^="open-list-"]');
+          if (again.length) again[again.length - 1].click();
+        }
+      }, 800);
     } else {
       tab.title = "The reading list is not ready yet: start a new chat or run a search first";
     }
@@ -109,7 +118,8 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     // Save the new list into the panel's store first: when Chainlit re-creates the panel (it does while an
     // action runs), the new panel starts from this list, so nothing has to be redrawn from the server.
     const store = window.__readingListStore || {};
-    window.__readingListStore = { ...store, papers: data.papers || [], pinned: data.pinned !== false };
+    window.__readingListStore = { ...store, papers: data.papers || [], pinned: data.pinned !== false,
+                                  version: data.version !== undefined ? data.version : store.version };
     setCount((data.papers || []).length);
     if (!panelOpen()) {
       openReadingList();
@@ -131,6 +141,9 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   window.addEventListener("message", (event) => {
     const data = event.data;
     if (data && data.type === "reading_list_count") setCount(data.count);
+    // A chat started or was reopened (app.show_mode(None)): the panel's stored copy belonged to the chat
+    // before, so it is dropped; the panel takes this chat's list from the server when it next opens.
+    if (data && data.type === "mode" && !data.mode) delete window.__readingListStore;
   });
 
   function setCount(n) {
