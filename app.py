@@ -508,10 +508,19 @@ async def resume(thread: dict) -> None:
     buttons = cl.user_session.get("buttons")
     steps = thread.get("steps", [])
     has_list_button = False
+    # A message on screen to carry the hidden "Reading list" button when the chat has no result summary (e.g.
+    # only research-mode answers): the Home screen if there is one, else the first message. Not steps[0]: that
+    # is the on_chat_start run, which is never drawn, so a button there never reached the page and the
+    # top-bar "Reading list" button had nothing to click.
+    welcome_id, first_message_id = None, None
     for step in steps:
         meta = step.get("metadata") or {}
         if isinstance(meta, str):
             meta = json.loads(meta)
+        if step.get("type") in ("assistant_message", "user_message") and first_message_id is None:
+            first_message_id = step["id"]
+        if meta.get("kind") == "welcome" and welcome_id is None:
+            welcome_id = step["id"]
         if "arxiv_id" in meta and paper_by_id(meta["arxiv_id"]) is not None:
             button = select_button(meta["arxiv_id"], meta["arxiv_id"] in selected, step["id"])
             await resend(button, step["id"])   # never a 2nd copy if the browser still shows the old one
@@ -540,8 +549,9 @@ async def resume(thread: dict) -> None:
             if not isinstance(thread.get("elements"), list):
                 thread["elements"] = []
             thread["elements"].append(panel.to_dict())
-    if not has_list_button and steps:   # keep a button for the top-bar "Reading list" button to click
-        await resend(open_list_button(steps[0]["id"]), steps[0]["id"])
+    carrier = welcome_id or first_message_id
+    if not has_list_button and carrier:   # keep a button for the top-bar "Reading list" button to click
+        await resend(open_list_button(carrier), carrier)
     if reading_list():
         await refresh_sidebar()
     await push_list_count()
