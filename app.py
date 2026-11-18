@@ -262,12 +262,27 @@ def set_pinned(pinned: bool) -> None:
     cl.user_session.set("sidebar_pinned", bool(pinned))
 
 
+# Version of this chat's reading-list panel: "<chat id>-<n>", n counting the redraws in this chat. It must be
+# unique across chats, not only within one: the browser tab keeps Chainlit's last sidebar key and the panel's
+# stored copy (window.__readingListStore) when the user switches chats without a reload, and a plain counter
+# that every chat starts at 1 made two chats share a version - the panel then did not open (key already seen)
+# or could show the other chat's papers.
+def sidebar_version(bump: bool = False) -> str:
+    n = cl.user_session.get("sidebar_version", 0)
+    if not isinstance(n, int):   # older chats may have saved something else
+        n = 0
+    if bump:
+        n += 1
+        cl.user_session.set("sidebar_version", n)
+    chat = getattr(cl.context.session, "thread_id", None) or "chat"
+    return f"{chat}-{n}"
+
+
 # Redraw (and open) the right-hand panel with the current reading list.
 # A new key/version each time: Chainlit ignores set_elements with an unchanged key, and the panel uses
 # the version to decide whether to keep its own (browser-side) state or take the server's list.
 async def refresh_sidebar() -> None:
-    version = cl.user_session.get("sidebar_version", 0) + 1
-    cl.user_session.set("sidebar_version", version)
+    version = sidebar_version(bump=True)
     await cl.ElementSidebar.set_title("📚 Reading List")
     await cl.ElementSidebar.set_elements([
         cl.CustomElement(name="ReadingList",
@@ -276,10 +291,12 @@ async def refresh_sidebar() -> None:
 
 
 # Send the current reading list to the page without redrawing the panel (no reload): an open panel updates
-# its list in place (ReadingList.jsx); a closed one is opened by public/custom.js.
+# its list in place (ReadingList.jsx); a closed one is opened by public/custom.js. It carries the panel's
+# current version, so the stored copy it updates belongs to this chat's panel.
 async def push_reading_list() -> None:
     import time
     await cl.send_window_message({"type": "reading_list", "papers": reading_list(), "pinned": is_pinned(),
+                                  "version": sidebar_version(),
                                   "seq": time.time_ns()})   # seq: the panel confirms it applied this update
 
 
