@@ -48,6 +48,9 @@ LLM_MODEL = GROQ_MODEL if LLM_PROVIDER == "groq" else OLLAMA_MODEL
 LLM_LABEL = f"Groq ({GROQ_MODEL})" if LLM_PROVIDER == "groq" else f"Ollama ({OLLAMA_MODEL})"
 # Self sign-up on /signup. ALLOW_SIGNUP=0 closes it (e.g. one shared account made with  python db.py adduser NAME).
 ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "1").strip().lower() not in ("0", "false", "no", "off")
+# Most accounts the sign-up page may create (e.g. 12 on the shared server); empty = no limit. Accounts made with
+# python db.py adduser NAME do not count (db.create_signup_account).
+SIGNUP_LIMIT = int(os.getenv("SIGNUP_LIMIT", "").strip()) if os.getenv("SIGNUP_LIMIT", "").strip().isdigit() else None
 SHOW_REASONING = os.getenv("SHOW_REASONING", "0") == "1"
 
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")   # cross-encoder reranker
@@ -2518,52 +2521,134 @@ if GUI_AVAILABLE:
     from fastapi import Form
     from fastapi.responses import HTMLResponse, RedirectResponse
 
-    def _signup_page(error: str = "", username: str = "") -> HTMLResponse:
-        err = f'<p class="err">{_html.escape(error)}</p>' if error else ""
-        return HTMLResponse(f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign up</title><style>
-:root{{--bg:#fff;--fg:#111;--muted:#666;--card:#f5f5f5;--border:#ddd;--accent:#2563eb;--err:#b91c1c}}
-@media (prefers-color-scheme:dark){{:root{{--bg:#111;--fg:#eee;--muted:#999;--card:#1c1c1c;--border:#333;--accent:#60a5fa;--err:#f87171}}}}
-body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}}
-form{{width:min(360px,calc(100vw - 32px));display:flex;flex-direction:column;gap:12px}}
-h1{{font-size:1.5rem;margin:0 0 8px}} label{{font-size:.9rem;display:flex;flex-direction:column;gap:4px}}
-input{{padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--fg);font-size:1rem}}
-button{{padding:10px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer}}
-.hint{{color:var(--muted);font-size:.8rem}} .err{{color:var(--err);margin:0}} a{{color:var(--accent)}}
-</style></head><body><form method="post" action="/signup">
-<h1>Create an account</h1>{err}
-<label>Username<input name="username" value="{_html.escape(username)}" required autofocus autocomplete="username"></label>
-<span class="hint">{_html.escape(db.USERNAME_RULE)}</span>
-<label>Password<input name="password" type="password" required minlength="{db.MIN_PASSWORD}" autocomplete="new-password"></label>
-<label>Repeat password<input name="password2" type="password" required autocomplete="new-password"></label>
-<button type="submit">Sign up</button>
-<span class="hint">Already have an account? <a href="/login">Log in</a></span>
-</form></body></html>""")
+    # The sign-up pages are plain HTML from this server (not the Chainlit app), styled like the login page: the
+    # same fonts and colours as public/theme.css and the brand lockup of public/custom.js section 11.
+    _SIGNUP_RING = (
+        '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 200 200" aria-hidden="true">'
+        '<g clip-path="url(#brand_clip)"><mask id="brand_mask" style="mask-type:alpha" width="200" height="200" '
+        'x="0" y="0" maskUnits="userSpaceOnUse"><path fill="#fff" fill-rule="evenodd" clip-rule="evenodd" '
+        'd="M100 150c27.614 0 50-22.386 50-50s-22.386-50-50-50-50 22.386-50 50 22.386 50 50 50zm0 50c55.228 0 '
+        '100-44.772 100-100S155.228 0 100 0 0 44.772 0 100s44.772 100 100 100z"/></mask><g mask="url(#brand_mask)">'
+        '<path fill="#fff" d="M200 0H0v200h200V0z"/><path fill="#0066FF" fill-opacity="0.33" d="M200 0H0v200h200V0z"/>'
+        '<g filter="url(#brand_blur)"><path fill="#0066FF" d="M110 32H18v68h92V32z"/><path fill="#0044FF" '
+        'd="M188-24H15v98h173v-98z"/><path fill="#0099FF" d="M175 70H5v156h170V70z"/><path fill="#00CCFF" '
+        'd="M230 51H100v103h130V51z"/></g></g></g><defs><filter id="brand_blur" width="385" height="410" x="-75" '
+        'y="-104" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" '
+        'result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>'
+        '<feGaussianBlur result="blur" stdDeviation="40"/></filter><clipPath id="brand_clip"><path fill="#fff" '
+        'd="M0 0H200V200H0z"/></clipPath></defs></svg>')
 
+    _SIGNUP_STYLE = """
+:root{--carbon:#000;--white:#fff;--ash:#f2f2f2;--slate:#717886;--fog:#999;--line:#e0e3e8;--input:#b1b7c3;
+--blue:#0000ff;--err-bg:#fef2f2;--err-line:#fecaca;--err:#b91c1c;
+--f-head:"Manrope","Inter",ui-sans-serif,system-ui,sans-serif;--f-body:"Inter",ui-sans-serif,system-ui,sans-serif;
+--f-label:"Space Grotesk","Inter",ui-sans-serif,system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--white);color:var(--carbon);
+font-family:var(--f-body);-webkit-font-smoothing:antialiased}
+.top{padding:24px;}
+@media(min-width:768px){.top{padding:40px}}
+.brand{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
+.brand svg{width:28px;height:28px;flex:none}
+.brand span{font:500 13px var(--f-label);letter-spacing:.073em;text-transform:uppercase;color:var(--slate)}
+main{flex:1;display:flex;align-items:center;justify-content:center;padding:0 16px 64px}
+.box{width:100%;max-width:320px;display:flex;flex-direction:column;gap:24px}
+h1{font:700 24px/1.25 var(--f-body);text-align:center;margin:0}
+.sub{margin:6px 0 0;text-align:center;font-size:14px;line-height:1.5;color:var(--slate)}
+form{display:flex;flex-direction:column;gap:20px}
+label{display:flex;flex-direction:column;gap:8px;font-size:14px;font-weight:500}
+input{height:40px;padding:8px 12px;border:1px solid var(--input);border-radius:6px;background:var(--white);
+color:var(--carbon);font:400 14px var(--f-body)}
+input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.hint{display:block;margin-top:-12px;font-size:12px;color:var(--slate)}
+button,.btn{height:40px;border:0;border-radius:6px;background:var(--blue);color:#fff;font:500 14px var(--f-body);
+cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+button:hover,.btn:hover{background:#0000cc}
+.err{margin:0;padding:10px 12px;border:1px solid var(--err-line);border-radius:8px;background:var(--err-bg);
+color:var(--err);font-size:14px;line-height:1.5}
+.places{margin:0;text-align:center;font:500 12px var(--f-label);letter-spacing:.06em;text-transform:uppercase;
+color:var(--slate)}
+.alt{text-align:center;font-size:14px;margin:0}
+.alt a{color:var(--carbon);text-decoration:underline;text-underline-offset:3px}
+"""
+
+    # One sign-up page: the lockup at the top left, then the given body in a 320px column (like the login form).
+    def _signup_html(body: str, status_code: int = 200) -> HTMLResponse:
+        return HTMLResponse(
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Create an account</title>'
+            '<link rel="preconnect" href="https://fonts.googleapis.com">'
+            '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
+            '&family=Manrope:wght@600;700&family=Space+Grotesk:wght@400;500&display=swap">'
+            f'<style>{_SIGNUP_STYLE}</style></head><body>'
+            f'<div class="top"><a class="brand" href="/login" aria-label="arXiv Paper Assistant">{_SIGNUP_RING}'
+            '<span>arXiv Paper Assistant</span></a></div>'
+            f'<main><div class="box">{body}</div></main></body></html>', status_code=status_code)
+
+    # Places left on the sign-up page ("3 of 12 places left"); None when there is no limit.
+    def _signup_places() -> str | None:
+        if SIGNUP_LIMIT is None:
+            return None
+        left = max(SIGNUP_LIMIT - db.signup_count(), 0)
+        return f"{left} of {SIGNUP_LIMIT} place{'' if SIGNUP_LIMIT == 1 else 's'} left"
+
+    # Sign-up is possible: switched on (ALLOW_SIGNUP) and, with a limit, a place still free.
+    def signup_open() -> bool:
+        return ALLOW_SIGNUP and (SIGNUP_LIMIT is None or db.signup_count() < SIGNUP_LIMIT)
+
+    def _signup_page(error: str = "", username: str = "") -> HTMLResponse:
+        err = f'<p class="err" role="alert">{_html.escape(error)}</p>' if error else ""
+        places = _signup_places()
+        places_html = f'<p class="places">{_html.escape(places)}</p>' if places else ""
+        return _signup_html(f"""
+<div><h1>Create an account</h1>
+<p class="sub">Find computer science papers on arXiv, save the ones you need and export them to Zotero or
+Mendeley.</p></div>
+{places_html}
+<form method="post" action="/signup">{err}
+<label>Username<input name="username" value="{_html.escape(username)}" required autofocus autocomplete="username"
+placeholder="your name"></label>
+<span class="hint">{_html.escape(db.USERNAME_RULE)}</span>
+<label>Password<input name="password" type="password" required minlength="{db.MIN_PASSWORD}"
+autocomplete="new-password"></label>
+<span class="hint">At least {db.MIN_PASSWORD} characters</span>
+<label>Repeat password<input name="password2" type="password" required autocomplete="new-password"></label>
+<button type="submit">Create account</button>
+</form>
+<p class="alt">Already have an account? <a href="/login">Sign in</a></p>""")
+
+    # Sign-up not possible: switched off, or every place taken (full).
     def _signup_closed() -> HTMLResponse:
-        return HTMLResponse('<!doctype html><meta charset="utf-8"><title>Sign up</title>'
-                            '<p style="font-family:system-ui,sans-serif;text-align:center;margin-top:20vh">'
-                            'Sign-up is closed. <a href="/login">Back to log in</a></p>', status_code=403)
+        if ALLOW_SIGNUP and SIGNUP_LIMIT is not None:
+            title, text = "Sign-up is full", (f"All {SIGNUP_LIMIT} places for new accounts are taken. "
+                                              "Ask the person who runs this app for an account.")
+        else:
+            title, text = "Sign-up is closed", "New accounts can't be created here. Ask the person who runs this app."
+        return _signup_html(f'<div><h1>{_html.escape(title)}</h1><p class="sub">{_html.escape(text)}</p></div>'
+                            '<a class="btn" href="/login">Back to sign in</a>', status_code=403)
 
     async def gui_signup_form():
-        return _signup_page() if ALLOW_SIGNUP else _signup_closed()
+        return _signup_page() if signup_open() else _signup_closed()
 
-    # Tells the login page (public/custom.js) whether to show the "Create an account" link.
+    # Tells the login page (public/custom.js) whether to show the "Create an account" link: off when sign-up
+    # is closed or full.
     async def gui_signup_enabled():
-        return JSONResponse({"enabled": ALLOW_SIGNUP})
+        return JSONResponse({"enabled": signup_open()})
 
     async def gui_signup(username: str = Form(""), password: str = Form(""), password2: str = Form("")):
-        if not ALLOW_SIGNUP:
+        if not signup_open():
             return _signup_closed()
         if password != password2:
             return _signup_page("Passwords do not match.", username)
         try:
-            name = db.create_account(username, password)
+            name = db.create_signup_account(username, password, SIGNUP_LIMIT)
         except ValueError as exc:
+            if not signup_open():   # the last place went to someone else a moment ago
+                return _signup_closed()
             return _signup_page(str(exc), username)
-        print(f"[signup] created account '{name}'", flush=True)
+        print(f"[signup] created account '{name}'" +
+              (f" ({db.signup_count()} of {SIGNUP_LIMIT} places used)" if SIGNUP_LIMIT is not None else ""),
+              flush=True)
         return RedirectResponse("/login?signup=ok", status_code=303)
 
     # ---- "Newest first" box in the top bar (public/custom.js): saved per user in history.db (table prefs).
