@@ -808,7 +808,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     asking = true;
     fetch("/user", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((u) => { name = (u && (u.display_name || u.identifier)) || ""; update(); })
+      .then((u) => { name = (u && (u.display_name || u.identifier)) || ""; update(); askAdmin(); })
       .catch(() => {})
       .finally(() => { asking = false; });
   }
@@ -819,6 +819,9 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   const ICON_OUT = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
     'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 ' +
     '5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>';
+  const ICON_ADMIN = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 ' +
+    '8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
   const ICON_UP = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
     'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5-5 ' +
     '5 5"/></svg>';
@@ -828,6 +831,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   footer.innerHTML =
     '<div id="account-menu" role="menu" aria-label="Account" hidden>' +
     '<div class="am-who">Signed in as <b class="am-name-menu"></b></div>' +
+    '<button type="button" role="menuitem" data-act="admin" hidden>' + ICON_ADMIN + "<span>Admin</span></button>" +
     '<button type="button" role="menuitem" data-act="readme">' + ICON_BOOK + "<span>Readme</span></button>" +
     '<button type="button" role="menuitem" data-act="logout">' + ICON_OUT + "<span>Log out</span></button>" +
     "</div>" +
@@ -835,6 +839,14 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     '<span class="am-avatar" aria-hidden="true"></span><span class="am-name"></span>' + ICON_UP + "</button>";
   const menu = footer.querySelector("#account-menu");
   const button = footer.querySelector("#account-button");
+
+  // "Admin" in the menu only for the accounts in ADMIN_USERS (the server says so at /admin/check)
+  function askAdmin() {
+    fetch("/admin/check", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { admin: false }))
+      .then((j) => { footer.querySelector('[data-act="admin"]').hidden = !j.admin; })
+      .catch(() => {});
+  }
 
   function update() {
     const shown = name || "Account";
@@ -849,7 +861,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     menu.hidden = !open;
     button.setAttribute("aria-expanded", String(open));
     if (open) {
-      const first = menu.querySelector("[role=menuitem]");
+      const first = menu.querySelector("[role=menuitem]:not([hidden])");
       if (first) first.focus();
     }
   }
@@ -858,7 +870,9 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
     const item = event.target.closest("[data-act]");
     if (!item) return;
     setOpen(false);
-    if (item.dataset.act === "readme") {
+    if (item.dataset.act === "admin") {
+      window.location.assign("/admin");
+    } else if (item.dataset.act === "readme") {
       const readme = document.getElementById("readme-button");
       if (readme) readme.click();
     } else if (item.dataset.act === "logout") {
@@ -870,7 +884,7 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   // Close on Escape (focus back on the button), on a click elsewhere; arrow keys move between the items
   footer.addEventListener("keydown", (event) => {
     if (menu.hidden) return;
-    const items = [...menu.querySelectorAll("[role=menuitem]")];
+    const items = [...menu.querySelectorAll("[role=menuitem]:not([hidden])")];
     const i = items.indexOf(document.activeElement);
     if (event.key === "Escape") { setOpen(false); button.focus(); }
     else if (event.key === "ArrowDown") { event.preventDefault(); items[(i + 1) % items.length].focus(); }

@@ -288,6 +288,75 @@ def create_signup_account(username: str, password: str, limit: int | None = None
     return name
 
 
+# ---- Read-only views for the admin panel (/admin in threeofus_main.py). Nothing here writes.
+# One row per account: name, made by sign-up or by an admin, joined, number of chats, last chat.
+def account_overview() -> list[dict]:
+    create_tables()
+    with engine().connect() as conn:
+        rows = conn.execute(text(
+            'SELECT a."username", a."createdAt", '
+            '  EXISTS (SELECT 1 FROM prefs p WHERE p."username" = a."username" AND p."key" = :k) AS signed_up, '
+            '  (SELECT COUNT(*) FROM threads t WHERE t."userIdentifier" = a."username") AS chats, '
+            '  (SELECT MAX(t."createdAt") FROM threads t WHERE t."userIdentifier" = a."username") AS last_chat '
+            'FROM accounts a ORDER BY a."createdAt" DESC'), {"k": SIGNUP_PREF}).fetchall()
+    return [{"username": r[0], "joined": r[1], "signed_up": bool(r[2]), "chats": r[3], "last_chat": r[4]}
+            for r in rows]
+
+
+# The chats of one user, newest first: id, title, started, number of questions asked.
+def user_threads(username: str) -> list[dict]:
+    create_tables()
+    with engine().connect() as conn:
+        rows = conn.execute(text(
+            'SELECT t."id", t."name", t."createdAt", '
+            '  (SELECT COUNT(*) FROM steps s WHERE s."threadId" = t."id" AND s."type" = \'user_message\') '
+            'FROM threads t WHERE t."userIdentifier" = :u ORDER BY t."createdAt" DESC'),
+            {"u": normalize_username(username)}).fetchall()
+    return [{"id": r[0], "title": r[1] or "(untitled)", "started": r[2], "questions": r[3]} for r in rows]
+
+
+# One chat as the admin panel shows it, or None if there is no such chat: owner, title, the reading list saved
+# with the chat, and the messages in order. Each message: who (user / assistant / diagnostics), text, time,
+# and for a diagnostics panel its notes (the "messages" list of chatbot_diagnostics.Diagnostics).
+def thread_messages(thread_id: str) -> dict | None:
+    import json
+    create_tables()
+
+    def as_dict(value):
+        if isinstance(value, dict):
+            return value
+        try:
+            return json.loads(value) if value else {}
+        except (TypeError, ValueError):
+            return {}
+
+    with engine().connect() as conn:
+        thread = conn.execute(text('SELECT "id", "name", "userIdentifier", "createdAt", "metadata" FROM threads '
+                                   'WHERE "id" = :i'), {"i": thread_id}).fetchone()
+        if thread is None:
+            return None
+        steps = conn.execute(text(
+            'SELECT "type", "name", "output", "createdAt", "metadata" FROM steps WHERE "threadId" = :i '
+            'AND "type" IN (\'user_message\', \'assistant_message\') ORDER BY "createdAt"'), {"i": thread_id}).fetchall()
+    meta = as_dict(thread[4])
+    reading = [{"arxiv_id": p.get("arxiv_id"), "title": p.get("title")}
+               for p in (meta.get("reading_list") or []) if isinstance(p, dict)]
+    messages = []
+    for kind, name, output, created, step_meta in steps:
+        m = as_dict(step_meta)
+        if m.get("kind") == "diagnostics" and isinstance(m.get("diagnostics"), dict):
+            notes = [str(x) for x in (m["diagnostics"].get("messages") or [])]
+            messages.append({"who": "diagnostics", "text": "", "time": created, "notes": notes})
+        elif m.get("kind") in ("status", "welcome", "diagnostics-live"):
+            continue   # start-up panel, Home screen, live panel: no content worth reading
+        elif kind == "user_message":
+            messages.append({"who": "user", "name": name, "text": output or "", "time": created})
+        elif output:
+            messages.append({"who": "assistant", "text": output, "time": created})
+    return {"id": thread[0], "title": thread[1] or "(untitled)", "owner": thread[2], "started": thread[3],
+            "reading_list": reading, "messages": messages}
+
+
 # Remove the login only; the user's chats stay in the database (re-adding the name gives them back).
 def delete_account(username: str) -> bool:
     create_tables()

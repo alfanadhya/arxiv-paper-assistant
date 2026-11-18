@@ -24,6 +24,7 @@ The same code runs in both places; only `.env` differs. New settings on this bra
 | `GROQ_MODEL` | any model your key can use | `qwen/qwen3.8-27b` | default |
 | `ALLOW_SIGNUP` | `1` / `0` | `1` | `1` |
 | `SIGNUP_LIMIT` | most accounts the sign-up page may create (`adduser` accounts don't count) | empty = no limit | `12` |
+| `ADMIN_USERS` | accounts that may open the read-only admin panel at `/admin` (comma-separated); make one with `python db.py adduser NAME` | empty = nobody | your admin account |
 | `DB_BACKEND` | `sqlite` / `postgres` | `sqlite` | default (sqlite) |
 | `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | Postgres URL | - | not used |
 
