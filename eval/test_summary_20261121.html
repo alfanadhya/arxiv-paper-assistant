@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testing Summary</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --fg: #1d1d1f; --muted: #5f6368; --border: #e3e3df;
+    --accent: #2563eb; --good: #15803d; --good-bg: #e8f5ec; --warn: #b45309; --warn-bg: #fdf3e3;
+    --bad: #b91c1c; --bad-bg: #fbeaea; --code-bg: #f0f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --surface: #1d1d20; --fg: #ececee; --muted: #a0a0a8; --border: #313136;
+      --accent: #7aa7ff; --good: #5fd08a; --good-bg: #1b2e22; --warn: #f0b45a; --warn-bg: #33281a;
+      --bad: #f28b8b; --bad-bg: #3a1f1f; --code-bg: #26262a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416; --surface: #1d1d20; --fg: #ececee; --muted: #a0a0a8; --border: #313136;
+    --accent: #7aa7ff; --good: #5fd08a; --good-bg: #1b2e22; --warn: #f0b45a; --warn-bg: #33281a;
+    --bad: #f28b8b; --bad-bg: #3a1f1f; --code-bg: #26262a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
+  header p { margin: 0; color: var(--muted); }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h2 .num { color: var(--accent); margin-right: 8px; }
+  p { margin: 10px 0; }
+  code { font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--code-bg);
+         padding: 1px 5px; border-radius: 4px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 24px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .kpi .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .label { color: var(--muted); font-size: 13px; line-height: 1.4; }
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.n { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-weight: 600; font-size: 13px; }
+  .good { color: var(--good); background: var(--good-bg); }
+  .warn { color: var(--warn); background: var(--warn-bg); }
+  .bad  { color: var(--bad);  background: var(--bad-bg); }
+  .note { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--warn);
+          border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin: 6px 0; }
+  .muted { color: var(--muted); }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Testing summary</h1>
+    <p>arXiv paper assistant · results as of 21 November 2026 · 22 ground-truth papers unless noted ·
+       “found” = the target paper was picked and shown to the user</p>
+  </header>
+
+  <section class="kpis" aria-label="Headline results">
+    <div class="kpi"><div class="value">22 / 22</div><div class="label">titles with the <code>title=</code> keyword</div></div>
+    <div class="kpi"><div class="value">19 / 22</div><div class="label">titles typed plainly (research assistant)</div></div>
+    <div class="kpi"><div class="value">22 / 22</div><div class="label">titles plus one <code>year=</code> or <code>author=</code> filter</div></div>
+    <div class="kpi"><div class="value">21 / 22</div><div class="label">questions written from each abstract</div></div>
+    <div class="kpi"><div class="value">20 / 20</div><div class="label">malformed inputs rejected correctly</div></div>
+    <div class="kpi"><div class="value">0 / 5</div><div class="label">misspelled queries found</div></div>
+  </section>
+
+  <h2><span class="num">1</span>Known paper by its title</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Test</th><th>Route</th><th>Found</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Titles typed plainly (first run)</td><td>agent</td><td class="n"><span class="pill warn">16 / 22</span></td>
+            <td>Lost PPO, LoRA, RAG evaluation survey, SQuAD, RAG, DPO</td></tr>
+        <tr><td>Same 6 failures rerun after splitting the search (dense half: model’s query; sparse half: user’s words) and fetching 30 candidates instead of 26</td>
+            <td>agent</td><td class="n"><span class="pill warn">19 / 22</span></td><td>SQuAD, RAG and DPO recovered</td></tr>
+        <tr><td>Titles typed plainly, after the agent changes (N+2 slots, search-first check, numbering)</td>
+            <td>agent</td><td class="n"><span class="pill warn">19 / 22</span></td><td>Qdrant rank 1 rose from 10 to 16; same 3 misses</td></tr>
+        <tr><td><code>title=</code> keyword</td><td>title route</td><td class="n"><span class="pill good">22 / 22</span></td>
+            <td>Run twice; title similarity overrides the reranker</td></tr>
+        <tr><td>Title plus one filter (<code>year=</code> for 11, <code>author=</code> for 11)</td><td>agent</td>
+            <td class="n"><span class="pill good">22 / 22</span></td><td>vs 19 / 22 without; the filter removed the look-alike papers</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note"><strong>The 3 persistent misses</strong> (PPO, LoRA, RAG evaluation survey) were all retrieved by
+    Qdrant, but the reranker ranked the original paper 12th–22nd among follow-ups that all scored above 0.99, so it
+    was cut at the top 5.</div>
+
+  <h2><span class="num">2</span>Paper from a description (general question)</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Test</th><th>Found</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Paraphrased questions (first version)</td><td class="n"><span class="pill bad">9 / 22</span></td>
+            <td>Too general: many papers fit each question; 8 targets never retrieved</td></tr>
+        <tr><td>Questions rewritten from each abstract</td><td class="n"><span class="pill good">20 / 22</span></td>
+            <td>Targets at Qdrant rank 1 in all 22</td></tr>
+        <tr><td>Same, after the agent changes</td><td class="n"><span class="pill good">21 / 22</span></td>
+            <td>Only miss: DPO, which the LLM swapped for a similar paper even though it was sent first</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2><span class="num">3</span>Input cleaning and checks</h2>
+  <p class="muted"><code>new_eval</code>, 55 cases, <code>search=</code> route.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Goal</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Malformed input rejected (too long, duplicate or invalid <code>year=</code>, empty <code>search=</code>)</td>
+            <td class="n"><span class="pill good">20 / 20</span> rejected correctly</td></tr>
+        <tr><td>Out-of-domain messages</td><td class="n"><span class="pill good">5 / 5</span> nothing shown</td></tr>
+        <tr><td>Repeated or stray symbols cleaned, then found</td><td class="n"><span class="pill good">13 / 15</span></td></tr>
+        <tr><td>Metadata filters applied, then found</td><td class="n"><span class="pill good">5 / 5</span></td></tr>
+        <tr><td>Typos fixed, then found</td><td class="n"><span class="pill bad">0 / 5</span></td></tr>
+        <tr><td>Natural-language relevance questions</td><td class="n"><span class="pill warn">3 / 5</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note"><strong>The typo failure</strong> comes from the split search: the spell check fixes the words for
+    the dense half, but BM25 still searches the misspellings. One typo case that was found before the split is now
+    lost.</div>
+
+  <h2><span class="num">4</span>Simulations on recorded scores</h2>
+  <p class="muted">No new runs; re-scored from the saved results.</p>
+  <ul>
+    <li><strong>Sending up to 10 papers while scores stay ≥ 0.97:</strong> would recover almost nothing (0 in the
+      title run, 1 in the question run), at about twice the context.</li>
+    <li><strong>N+2 with Qdrant’s top 2 in the +2 slots:</strong> predicted +1 (PPO) and no losses, which the later
+      runs confirmed. In practice it fired often but changed no outcome.</li>
+  </ul>
+
+  <h2><span class="num">5</span>Overall picture</h2>
+  <ul>
+    <li><strong>Retrieval is strong when the query keeps the paper’s own words:</strong> full titles, abstract-like
+      questions, or a correct filter.</li>
+    <li><strong>The main remaining weakness is the reranker on crowded topics.</strong> For famous papers it scores
+      the original and its follow-ups alike, so a top-5 cut loses the original. A title-match signal is the fix
+      suggested by the <code>title=</code> route’s 22 / 22.</li>
+    <li><strong>The model</strong> sometimes shortens a title into a generic query, and
+      once (DPO) chose a look-alike paper from the right candidates.</li>
+    <li><strong>The input checks are reliable;</strong> typo handling needs the BM25 fix discussed (give BM25 the
+      user’s words with only the misspelled words corrected).</li>
+  </ul>
+
+  <h2><span class="num">6</span>Where the results are</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Test</th><th>Location</th></tr></thead>
+      <tbody>
+        <tr><td>Titles, research assistant</td><td><code>eval/runs/20261117_ground_truth_title_withoutkey/</code></td></tr>
+        <tr><td>Titles, <code>title=</code> route</td><td><code>eval/runs/20261117_ground_truth_title_key/</code></td></tr>
+        <tr><td>Abstract-based questions</td><td><code>eval/runs/20261117_ground_truth_question/</code></td></tr>
+        <tr><td>Titles plus one filter</td><td><code>eval/runs/20261119_ground_truth_title_with_filter/</code> (incl. <code>filter_comparison.txt</code>)</td></tr>
+        <tr><td>Input cleaning cases</td><td><code>new_eval/results_20261119.csv</code> (earlier run: <code>new_eval/results.csv</code>)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>Generated from the evaluation runs in this repository.</footer>
+</main>
+</body>
+</html>

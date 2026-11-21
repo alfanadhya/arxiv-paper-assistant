@@ -48,6 +48,7 @@ PAYLOAD_UPDATE_BATCH = 500    # payload-only updates per Qdrant request
 INDEXING_THRESHOLD_ON = 20000 # HNSW threshold restored after bulk load
 
 PAYLOAD_INDEXES = {
+    "metadata.arxiv_id": models.PayloadSchemaType.KEYWORD,   # lookups of one paper by id (get_paper, title=)
     "metadata.year": models.PayloadSchemaType.INTEGER,
     "metadata.primary_category": models.PayloadSchemaType.KEYWORD,
     "metadata.categories": models.PayloadSchemaType.KEYWORD,

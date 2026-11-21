@@ -60,7 +60,25 @@ K_FINAL = 6              # (kept) old fixed number of research papers passed to 
 K_SURVEYS = 5            # (kept) old fixed number of surveys passed to the model (normal query)
 K_SURVEYS_FOCUS = 10     # (kept) old fixed number of surveys passed to the model (survey query)
 SURVEYS_SHOWN = 5        # surveys shown: the reranker's top this many (no LLM ranking for surveys)
-MAX_PAPERS = 3           # research papers the model may pick
+# N in N+2: research papers the model may pick (search=), and the reranker's share of what one agent search
+# returns. This is the default; in the GUI each user sets their own value with the "Papers to pick (N)" slider
+# (within the range below), and run_turn applies it to that message through max_papers().
+MAX_PAPERS = 3
+MAX_PAPERS_MIN, MAX_PAPERS_MAX = 2, 6
+_max_papers = contextvars.ContextVar("max_papers", default=MAX_PAPERS)
+
+
+# N in force for the message being answered (the user's slider value, else MAX_PAPERS).
+def max_papers() -> int:
+    return _max_papers.get()
+
+
+# An N value from the GUI or the database as a whole number inside the allowed range; MAX_PAPERS if unusable.
+def clamp_n(value) -> int:
+    try:
+        return int(min(max(round(float(value)), MAX_PAPERS_MIN), MAX_PAPERS_MAX))
+    except (TypeError, ValueError):
+        return MAX_PAPERS
 EXTRA_CANDIDATES = 1     # (kept) old fixed extra; now chosen per query by fit_candidates()
 MAX_EXTRA_CANDIDATES = 2 # the LLM sees up to N+2 reranked candidates per pool (N = number it may pick) ...
 MIN_EXTRA_CANDIDATES = 1 # ... and at least N+1 when the context is too tight for N+2
@@ -97,8 +115,14 @@ AGENT_MAX_TOKENS = int(os.getenv("AGENT_MAX_TOKENS", "4096")) # generated-token 
 # Same N+2 rule as the search route (N = MAX_PAPERS), applied after the cutoff. The N slots go to the reranker's
 # best; the +2 slots go to Qdrant's own top 2 hits (when not already in and at or above the cutoff), so a paper
 # Qdrant ranked first is not lost when the reranker scores many close papers alike; slots left over go to the
-# reranker's next best.
+# reranker's next best. AGENT_CANDIDATES is the default; per message it is agent_candidates() (N from the slider).
 AGENT_CANDIDATES = MAX_PAPERS + MAX_EXTRA_CANDIDATES
+
+
+def agent_candidates() -> int:
+    return max_papers() + MAX_EXTRA_CANDIDATES
+
+
 AGENT_QDRANT_SLOTS = MAX_EXTRA_CANDIDATES
 AGENT_RERANK_POOL = 40     # Qdrant hits reranked per call
 # Agent sampling: 0 = greedy (most repeatable). Qwen3 advises against greedy decoding in thinking mode (possible
@@ -1347,7 +1371,7 @@ def rank_pool(response: SearchResponse, pool: str, hits: list, topic: str, limit
 # SURVEYS_SHOWN, newest first only with the box). Fills the response in place.
 def rank_papers(response: SearchResponse, topic: str, log: LogFn = lambda msg: None,
                 found: tuple[int, int] = (0, 0)) -> None:
-    p = rank_pool(response, "paper", response.papers, topic, MAX_PAPERS, log, found[0])
+    p = rank_pool(response, "paper", response.papers, topic, max_papers(), log, found[0])
     response.top_papers = order_papers(p.picks, response.papers, response.newest_first)
     response.top_surveys = order_surveys(response.surveys, response.newest_first)
     if response.surveys:
@@ -1467,7 +1491,7 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
     # Papers below RERANK_CUTOFF are dropped before anything is sent to the LLM or shown.
     papers_kept = above_cutoff(papers_ranked, paper_scores)
     surveys_kept = above_cutoff(surveys_ranked, survey_scores)
-    response.papers, fit_note = fit_candidates(papers_kept, MAX_PAPERS, a.corrected_query)
+    response.papers, fit_note = fit_candidates(papers_kept, max_papers(), a.corrected_query)
     response.surveys = surveys_kept[:SURVEYS_SHOWN]
     if paper_scores is not None:
         diag.note_rerank("paper", paper_pool, papers_ranked, paper_scores, len(response.papers), RERANKER_MODEL)
@@ -1874,7 +1898,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
             steps.append(f"[validation] Dropped years={y_from or ''}-{y_to or ''} in search #{n}: the model set "
                          "them, but the user gave no year or time.")
             y_from = y_to = None
-        k = AGENT_CANDIDATES
+        k = agent_candidates()
         if not topic and not authors:
             steps.append("[validation] FAILED: the model called search_papers with no query and no author -> "
                          "not searched; it was told to give one.")
@@ -1912,7 +1936,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
         qdrant_order = sorted(hits, key=lambda h: origin.get(h.point_id, ("", 10 ** 6))[1])
         # N+2: the reranker's top N, then Qdrant's top 2 if not already in and at or above the cutoff, then the
         # reranker's next best for any slot left
-        picked = [h for h, _ in above[:MAX_PAPERS]]
+        picked = [h for h, _ in above[:max_papers()]]
         from_qdrant = []
         for h in qdrant_order[:AGENT_QDRANT_SLOTS]:
             if h not in picked and score_of.get(h.arxiv_id, 0.0) >= rerank_cutoff():
@@ -1941,7 +1965,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
         top_ids = {h.arxiv_id for h in top}
         kept_from_top = sum(1 for h in qdrant_order[:len(top)] if h.arxiv_id in top_ids)   # also in Qdrant's top
         moved_up = len(top) - kept_from_top                                                # from lower in Qdrant
-        n_reranker = min(MAX_PAPERS, len(above))
+        n_reranker = min(max_papers(), len(above))
         slots = (f" (slots: the reranker's top {n_reranker}"
                  + (", plus Qdrant's top " + " and ".join(
                      f"#{qdrant_order.index(h) + 1} ({h.arxiv_id}, reranker rank {rerank_rank_of[h.arxiv_id]}, "
@@ -2022,7 +2046,7 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
         StructuredTool.from_function(search, name="search_papers", description=(
             "Search the arXiv CS paper database (hybrid search + reranker). query: short research topic without leaving out any technical word; "
             "author: author name(s), several separated by ';'; year_from / year_to: year range; "
-            f"Returns up to {AGENT_CANDIDATES} candidates (best first): arxiv_id, title, year, authors, abstract, "
+            f"Returns up to {agent_candidates()} candidates (best first): arxiv_id, title, year, authors, abstract, "
             "rerank_rank, relevance.")),
         StructuredTool.from_function(get_paper, name="get_paper", description=(
             "Full abstract and metadata of one paper by its arXiv id, e.g. 2105.01234.")),
@@ -2055,7 +2079,9 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
                                                          if t.get("role") == "user"][-3:]))
     by_name = {t.name: t for t in tools}
     llm = get_agent_llm()
-    messages = [SystemMessage(AGENT_SYSTEM_PROMPT)]
+    # the prompt was written with the default N+2; state this message's number of candidates instead
+    messages = [SystemMessage(AGENT_SYSTEM_PROMPT.replace(
+        f"returns up to {AGENT_CANDIDATES}\n", f"returns up to {agent_candidates()}\n", 1))]
     messages += [HumanMessage(e["content"]) if e["role"] == "user" else AIMessage(e["content"])
                  for e in (history or [])]
     if shown:   # the papers on screen, so labels like '2' or 'S1' need no tool call to resolve
@@ -2241,6 +2267,7 @@ def rejected(message: str, parsed: ParsedMessage, error: str, diag_line: str) ->
 # (the agent can still look those up by id). Every result is numbered from 1.
 # labels is accepted for old callers and ignored (numbers no longer run across the chat).
 # cutoff = the user's reranker cutoff (GUI slider); None = RERANK_CUTOFF.
+# n_papers = the user's N in N+2 (GUI slider); None = MAX_PAPERS.
 # diagnostics = a buffer the caller made, filled while the route runs (the GUI shows it live); None = a new one.
 # A message stopped by the input checks returns its own buffer instead.
 # current_mode and on_mode are accepted for old callers and ignored.
@@ -2250,9 +2277,11 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
              shown: list[dict] | None = None, known: dict[str, dict] | None = None,
              on_mode: Callable[[str], None] | None = None,
              labels: dict[str, str] | None = None, cutoff: float | None = None,
-             diagnostics: Diagnostics | None = None) -> SearchResponse:
+             diagnostics: Diagnostics | None = None, n_papers: int | None = None) -> SearchResponse:
     if cutoff is not None:   # the user's slider value: in force for everything this call runs (rerank_cutoff())
         _rerank_cutoff.set(clamp_cutoff(cutoff))
+    if n_papers is not None:   # the user's N (N+2): in force for everything this call runs (max_papers())
+        _max_papers.set(clamp_n(n_papers))
     message = message or ""
     problem = length_problem(message)
     if problem:
@@ -2886,6 +2915,7 @@ autocomplete="new-password"></label>
     # (prefs table) and apply to all of that user's chats; every message is run with the cutoff
     # (run_turn(cutoff=...)), and every diagnostics panel starts open or closed as the switch says.
     CUTOFF_PREF = "rerank_cutoff"
+    N_PREF = "max_papers"                # N in N+2
     DIAG_OPEN_PREF = gui.DIAG_OPEN_KEY   # "diagnostics_open": "1" = expanded, "0" = collapsed (the default)
 
     # The logged-in user's saved diagnostics choice (collapsed if never set).
@@ -2899,11 +2929,19 @@ autocomplete="new-password"></label>
         saved = db.get_pref(user.identifier, CUTOFF_PREF) if user else None
         return clamp_cutoff(saved) if saved is not None else RERANK_CUTOFF
 
+    # The logged-in user's saved N (N+2), else the default.
+    def user_n() -> int:
+        user = cl.context.session.user
+        saved = db.get_pref(user.identifier, N_PREF) if user else None
+        return clamp_n(saved) if saved is not None else MAX_PAPERS
+
     # Show the settings panel with the user's current values (called for a new and for a reopened chat).
     async def send_settings() -> None:
         from chainlit.input_widget import Slider, Switch
         value = user_cutoff()
         cl.user_session.set(CUTOFF_PREF, value)
+        n_value = user_n()
+        cl.user_session.set(N_PREF, n_value)
         diag_open = user_diag_open()
         cl.user_session.set(DIAG_OPEN_PREF, diag_open)   # read by app.diagnostics_panel for every panel
         await cl.ChatSettings([
@@ -2911,6 +2949,10 @@ autocomplete="new-password"></label>
                    min=RERANK_CUTOFF_MIN, max=RERANK_CUTOFF_MAX, step=0.01,
                    description=f"Papers the reranker scores below this are dropped, in every mode. Higher = "
                                f"fewer, more relevant papers. Default {RERANK_CUTOFF}."),
+            Slider(id=N_PREF, label="Papers to pick (N)", initial=n_value,
+                   min=MAX_PAPERS_MIN, max=MAX_PAPERS_MAX, step=1,
+                   description=f"search=: the model sees up to N+2 papers and picks up to N. Questions: each search "
+                               f"returns up to N+2 papers to the assistant. Default {MAX_PAPERS}."),
             Switch(id=DIAG_OPEN_PREF, label="Show diagnostics expanded", initial=diag_open,
                    description="On: every diagnostics panel opens expanded. Off: panels show only their one-line "
                                "summary until clicked. Applies from the next message, in all your chats."),
@@ -2921,11 +2963,14 @@ autocomplete="new-password"></label>
     async def gui_settings_update(settings: dict):
         value = clamp_cutoff(settings.get(CUTOFF_PREF))
         cl.user_session.set(CUTOFF_PREF, value)
+        n_value = clamp_n(settings.get(N_PREF, cl.user_session.get(N_PREF, MAX_PAPERS)))
+        cl.user_session.set(N_PREF, n_value)
         diag_open = bool(settings.get(DIAG_OPEN_PREF, cl.user_session.get(DIAG_OPEN_PREF, False)))
         cl.user_session.set(DIAG_OPEN_PREF, diag_open)
         user = cl.context.session.user
         if user:
             db.set_pref(user.identifier, CUTOFF_PREF, str(value))
+            db.set_pref(user.identifier, N_PREF, str(n_value))
             db.set_pref(user.identifier, DIAG_OPEN_PREF, "1" if diag_open else "0")
 
     # Load the models when the server starts, in the background, so the first chat does not wait for them
@@ -3028,6 +3073,7 @@ autocomplete="new-password"></label>
                                               newest_first=newest_first, shown=shown,
                                               known=dict(cl.user_session.get("papers_by_id") or {}),
                                               cutoff=clamp_cutoff(cl.user_session.get(CUTOFF_PREF, user_cutoff())),
+                                              n_papers=clamp_n(cl.user_session.get(N_PREF, user_n())),
                                               diagnostics=live_diag)
         finally:
             watcher.cancel()
