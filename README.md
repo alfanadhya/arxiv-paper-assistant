@@ -65,7 +65,9 @@ Optional settings, with their defaults:
 | Variable | Default | Meaning |
 |---|---|---|
 | `OLLAMA_URL` | `http://localhost:11434` | Where Ollama runs |
-| `OLLAMA_NUM_CTX` | `16384` | Model context size in tokens |
+| `OLLAMA_NUM_CTX` | `auto` | Model context size in tokens. `auto` = the model's own maximum, read from Ollama at start-up, but at most `NUM_CTX_MAX`; a number fixes it |
+| `NUM_CTX_MAX` | `16384` | Upper limit for `auto` (Ollama reserves GPU memory for the whole window) |
+| `RANKING_MAX_OUTPUT` | `4096` | Most tokens one ranking call may write; each call gets what the window has left, up to this |
 | `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded (`-1` = forever) |
 | `RERANKER_MODEL` | `BAAI/bge-reranker-base` | Cross-encoder used for reranking |
 

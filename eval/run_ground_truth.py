@@ -27,7 +27,8 @@ One record (all id lists are in rank order, best first, arXiv ids without versio
         reranked_ids           the hits after the reranker, with reranked_scores next to them
         sent_to_llm_ids        the reranked hits at or above the cutoff that were passed to the LLM
     stages                     the same lists for the whole message (searches merged, see merge_stages):
-        qdrant, reranked, sent_to_llm, llm_selected (the papers the LLM cited / the app showed)
+        qdrant, reranked, sent_to_llm, llm_selected (the papers the LLM cited / the app showed; on search= and
+        title= also the surveys shown, which skip the LLM, so a shown survey has no sent_to_llm rank)
     target_rank                1-based position of the target in each of the four stage lists (null = absent)
     titles                     arXiv id -> title for every id in the record
     answer, warnings, errors, refused_out_of_scope, diagnostics, tokens, latency_s
@@ -122,7 +123,11 @@ def run_paper(app, paper: dict, message: str, qdrant_log: list) -> dict:
                 "traceback": traceback.format_exc(), "latency_s": round(time.perf_counter() - started, 2)}
     latency = round(time.perf_counter() - started, 2)
     searches = agent_searches(response, qdrant_log) if response.mode == "agent" else pipeline_search(response, qdrant_log)
+    # shown = the papers the LLM picked, plus (search= / title=) the surveys shown next to them: surveys skip the
+    # LLM (the reranker's top surveys are shown directly), so a target survey has llm_selected but no sent_to_llm
     selected = [norm_id(response.papers[n - 1].arxiv_id) for n in response.top_papers]
+    selected += [norm_id(response.surveys[n - 1].arxiv_id) for n in getattr(response, "top_surveys", [])
+                 if norm_id(response.surveys[n - 1].arxiv_id) not in selected]
     stages = merge_stages(searches, selected)
     titles = {h["arxiv_id"]: h["title"] for call in qdrant_log for h in call["hits"]}
     titles.update({norm_id(h.arxiv_id): h.title for h in response.papers})

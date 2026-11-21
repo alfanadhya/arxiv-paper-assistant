@@ -84,6 +84,9 @@ class IngestConfig:
     fp16: bool = False
     force: bool = False
     verify: str | None = None
+    delete: list[str] = field(default_factory=list)   # arXiv ids to delete (no ingestion is run then)
+    delete_file: str | None = None                    # file with arXiv ids to delete, one per line
+    dry_run: bool = False                             # with delete: only report what would be deleted
 
 
 # Counters and problems collected during a run.
@@ -642,6 +645,97 @@ def run_ingestion(config: IngestConfig, log: LogFn = console_log, progress: Prog
     return result
 
 
+# --------------------------------------------------------------------------- deleting papers
+ARXIV_PREFIX_RE = re.compile(r"^\s*(?:arxiv\s*:\s*)?", re.IGNORECASE)
+VERSION_SUFFIX_RE = re.compile(r"v\d+$")
+
+
+# Outcome of delete_papers.
+@dataclass
+class DeleteResult:
+    requested: int = 0                                   # distinct ids asked for
+    deleted: list[str] = field(default_factory=list)     # arXiv ids removed (or that would be, in a dry run)
+    not_found: list[str] = field(default_factory=list)   # arXiv ids not in the collection
+    invalid: list[str] = field(default_factory=list)     # entries that are not usable ids
+    dry_run: bool = False
+
+
+# An arXiv id as stored: 'arXiv:1706.03762v5' -> '1706.03762', 'cs_0101001' -> 'cs/0101001'; '' if empty.
+def normalize_arxiv_id(value: str) -> str:
+    s = VERSION_SUFFIX_RE.sub("", ARXIV_PREFIX_RE.sub("", str(value or "")).strip())
+    if "/" not in s and re.fullmatch(r"[a-z\-]+(\.[A-Z]{2})?_\d{7}", s):   # old-style id written with '_'
+        s = s.replace("_", "/", 1)
+    return s
+
+
+# arXiv ids from a text file: one per line; blank lines and lines starting with '#' are ignored.
+def read_id_file(path: str) -> list[str]:
+    with open(path, encoding="utf-8") as f:
+        return [line.split("#", 1)[0].strip() for line in f if line.split("#", 1)[0].strip()]
+
+
+# Delete papers from the collection by arXiv id. Each paper is found by its point id (the same UUID5 the
+# loader gives it) and, as a fallback, by its 'metadata.arxiv_id' payload. With dry_run nothing is deleted.
+# Only the database is changed: the input files and -rag.jsonl outputs keep the paper, so a later load of the
+# same snapshot adds it back (remove it from the input too if it must stay out).
+def delete_papers(config: IngestConfig, arxiv_ids: list[str], dry_run: bool = False,
+                  log: LogFn = console_log) -> DeleteResult:
+    result = DeleteResult(dry_run=dry_run)
+    wanted = []
+    for raw in arxiv_ids:
+        aid = normalize_arxiv_id(raw)
+        if not aid or not re.fullmatch(r"[\w./\-]+", aid):
+            result.invalid.append(str(raw))
+        elif aid not in wanted:
+            wanted.append(aid)
+    result.requested = len(wanted)
+    if not wanted:
+        return result
+
+    client = open_client(config)
+    try:
+        if not client.collection_exists(config.collection):
+            raise RuntimeError(f"Collection '{config.collection}' not found.")
+        # 1. by point id
+        pid_of = {aid: point_id(aid.replace("/", "_")) for aid in wanted}
+        found_pids = set()
+        pids = list(pid_of.values())
+        for i in range(0, len(pids), RETRIEVE_BATCH):
+            for p in client.retrieve(config.collection, ids=pids[i:i + RETRIEVE_BATCH],
+                                     with_payload=False, with_vectors=False):
+                found_pids.add(str(p.id))
+        to_delete = {pid_of[aid]: aid for aid in wanted if pid_of[aid] in found_pids}
+        # 2. fallback by payload (a point stored under another id, e.g. by an older loader)
+        for aid in wanted:
+            if aid in to_delete.values():
+                continue
+            points, _ = client.scroll(config.collection, limit=10, with_payload=False, with_vectors=False,
+                                      scroll_filter=models.Filter(must=[models.FieldCondition(
+                                          key="metadata.arxiv_id", match=models.MatchValue(value=aid))]))
+            for p in points:
+                to_delete[str(p.id)] = aid
+        result.deleted = [aid for aid in wanted if aid in to_delete.values()]
+        result.not_found = [aid for aid in wanted if aid not in to_delete.values()]
+
+        if to_delete and not dry_run:
+            ids = list(to_delete)
+            for i in range(0, len(ids), PAYLOAD_UPDATE_BATCH):
+                client.delete(config.collection, wait=True,
+                              points_selector=models.PointIdsList(points=ids[i:i + PAYLOAD_UPDATE_BATCH]))
+    finally:
+        client.close()
+
+    verb = "Would delete" if dry_run else "Deleted"
+    log(f"{verb} {len(result.deleted):,} of {result.requested:,} paper(s) from '{config.collection}'"
+        + (f": {', '.join(result.deleted[:20])}" + (" ..." if len(result.deleted) > 20 else "")
+           if result.deleted else "") + ".", "info")
+    if result.not_found:
+        log(f"Not in the collection: {', '.join(result.not_found)}", "warning")
+    if result.invalid:
+        log(f"Not usable as arXiv ids (ignored): {', '.join(result.invalid)}", "warning")
+    return result
+
+
 # Human-readable end-of-run summary.
 def format_summary(result: IngestResult) -> str:
     lines = [f"Done: {result.records_built:,} of {result.records_read:,} records from {result.files} file(s); "
@@ -661,7 +755,7 @@ def format_summary(result: IngestResult) -> str:
 # Parse command-line arguments into an IngestConfig.
 def parse_args(argv: list[str]) -> IngestConfig:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("inputs", nargs="+", help="folder(s), file(s) or glob pattern(s)")
+    p.add_argument("inputs", nargs="*", help="folder(s), file(s) or glob pattern(s) (not needed with --delete)")
     p.add_argument("-o", "--out-dir", default=None, help="folder for output files")
     p.add_argument("--db-dir", default=None, help="folder for embedded Qdrant database")
     p.add_argument("--qdrant-url", default=None, help="URL of a Qdrant server")
@@ -674,12 +768,31 @@ def parse_args(argv: list[str]) -> IngestConfig:
     p.add_argument("--fp16", action="store_true", help="run dense model in fp16 (GPU only)")
     p.add_argument("--force", action="store_true", help="re-embed and upsert every record")
     p.add_argument("--verify", metavar="QUERY", default=None, help="run similarity search after ingestion")
-    return IngestConfig(**vars(p.parse_args(argv)))
+    p.add_argument("--delete", metavar="ARXIV_ID", nargs="+", default=[],
+                   help="delete these papers from the collection instead of loading (e.g. 1706.03762 cs/0101001)")
+    p.add_argument("--delete-file", metavar="PATH", default=None,
+                   help="delete the papers listed in this file, one arXiv id per line ('#' starts a comment)")
+    p.add_argument("--dry-run", action="store_true", help="with --delete: only show what would be deleted")
+    args = p.parse_args(argv)
+    if not args.inputs and not args.delete and not args.delete_file:
+        p.error("give input file(s) to load, or --delete / --delete-file to remove papers")
+    if args.dry_run and not (args.delete or args.delete_file):
+        p.error("--dry-run only works with --delete or --delete-file")
+    return IngestConfig(**vars(args))
 
 
 # CLI entry point: parse args, run, print summary, return exit code.
 def main(argv: list[str] | None = None) -> int:
-    result = run_ingestion(parse_args(sys.argv[1:] if argv is None else argv))
+    config = parse_args(sys.argv[1:] if argv is None else argv)
+    if config.delete or config.delete_file:   # delete mode: no ingestion
+        ids = list(config.delete) + (read_id_file(config.delete_file) if config.delete_file else [])
+        try:
+            outcome = delete_papers(config, ids, dry_run=config.dry_run)
+        except Exception as e:
+            console_log(f"FAILED to delete ({type(e).__name__}: {e})", "error")
+            return 1
+        return 0 if not outcome.invalid else 1
+    result = run_ingestion(config)
     console_log("\n" + format_summary(result), "info" if result.ok else "error")
     return 0 if result.ok else 1
 

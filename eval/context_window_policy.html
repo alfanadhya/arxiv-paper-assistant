@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Window Policy</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --fg: #1d1d1f; --muted: #5f6368; --border: #e3e3df;
+    --accent: #2563eb; --warn: #b45309; --code-bg: #f0f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --surface: #1d1d20; --fg: #ececee; --muted: #a0a0a8; --border: #313136;
+      --accent: #7aa7ff; --warn: #f0b45a; --code-bg: #26262a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416; --surface: #1d1d20; --fg: #ececee; --muted: #a0a0a8; --border: #313136;
+    --accent: #7aa7ff; --warn: #f0b45a; --code-bg: #26262a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
+  header p { margin: 0; color: var(--muted); }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h2 .num { color: var(--accent); margin-right: 8px; }
+  p { margin: 10px 0; }
+  code { font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--code-bg);
+         padding: 1px 5px; border-radius: 4px; }
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.n { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .note { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--warn);
+          border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin: 6px 0; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Context window policy</h1>
+    <p>arXiv paper assistant · as of 21 November 2026 · model <code>qwen3:4b</code> served locally by Ollama</p>
+  </header>
+
+  <h2><span class="num">1</span>Window size</h2>
+  <ul>
+    <li><strong>8,192 tokens</strong>, set in the configuration (<code>OLLAMA_NUM_CTX=8192</code>). Every model call
+      in the app uses the same window.</li>
+    <li>Without that setting the app reads the model’s own maximum from Ollama at start-up and caps it at
+      16,384 (<code>NUM_CTX_MAX</code>), because Ollama reserves GPU memory for the whole window each time the model
+      loads. All budgets below are derived from the window size, so they follow it if the model changes.</li>
+    <li>At start-up the app checks that the loaded model really runs with this window and reloads it if not.</li>
+  </ul>
+
+  <h2><span class="num">2</span>What goes into the window</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Content</th><th>Limit</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Candidate papers per search</td><td class="n">5</td>
+            <td>“N+2”: the reranker’s top 3 plus two more, so the model has a choice without a long prompt</td></tr>
+        <tr><td>Abstract per paper in search results</td><td class="n">700 characters</td>
+            <td>Enough to judge relevance; the full abstract is fetched only on request (<code>get_paper</code>)</td></tr>
+        <tr><td>Authors per paper</td><td class="n">5 in search results, 40 via <code>get_paper</code></td>
+            <td>Long author lists are rarely needed and cost many tokens</td></tr>
+        <tr><td>Conversation history</td><td class="n">last 10 question/answer pairs</td>
+            <td>Supports follow-up questions; older turns are dropped</td></tr>
+        <tr><td>Model “thinking”</td><td class="n">not kept</td>
+            <td>Removed from answers before they enter the history (as Qwen3’s guidance recommends)</td></tr>
+        <tr><td>Tool rounds per question (research assistant)</td><td class="n">at most 4</td>
+            <td>Each round adds tool results to the prompt; the cap bounds growth</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2><span class="num">3</span>Room reserved for the answer</h2>
+  <ul>
+    <li><strong>Research assistant (agent):</strong> at most 4,096 generated tokens per step, covering both the
+      thinking and the answer. The written answer itself is asked to stay under about 200 words (350 for a
+      comparison of papers).</li>
+    <li><strong><code>search=</code> route (ranking call):</strong> before sending, the app estimates the prompt size
+      (about 3.5 characters per token, on the safe side) and checks that the prompt plus 3,000 tokens of output room
+      fits the window. If 5 candidates do not fit, it sends 4 (N+1). The output cap is then set to whatever the window
+      has left after the prompt and a margin, at most 4,096, so the output can never overflow the window.</li>
+    <li><strong><code>title=</code> route:</strong> no model call for the ranking (title similarity and the reranker
+      decide), so it uses the window only for the short title check.</li>
+  </ul>
+
+  <h2><span class="num">4</span>Monitoring</h2>
+  <ul>
+    <li>Every model call records its prompt and output tokens as reported by Ollama.</li>
+    <li>The diagnostics panel shows each step against the window, e.g.
+      <code>agent step 2: prompt 3,199 + output 698 = 3,897 / 8,192 tokens (48%)</code>, and the peak use per
+      question.</li>
+    <li>The same figures are saved with every evaluation case, which is the basis for the usage statistics.</li>
+  </ul>
+
+  <div class="note"><strong>Measured usage</strong> across the evaluation runs (by route: peak and per-step use,
+    median and worst case against 8,192 tokens) will be added once the current <code>search=</code> evaluation run
+    has finished.</div>
+
+  <footer>Settings as configured in <code>threeofus_main.py</code> and <code>.env</code>.</footer>
+</main>
+</body>
+</html>

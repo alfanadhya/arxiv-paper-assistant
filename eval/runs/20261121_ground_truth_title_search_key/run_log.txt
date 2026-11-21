@@ -1,0 +1,40 @@
+Run 20261121_ground_truth_title_search_key: 22 papers, message = the paper's title, mode key 'search='
+Loading the app, models and Qdrant connection...
+Loading the embedding models and connecting to Qdrant (http://localhost:6333, 'sebun_bge768_hybrid_full')...
+Loading the reranker BAAI/bge-reranker-base on cuda...
+0 papers already done, 22 to run. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261121_ground_truth_title_search_key\records.jsonl
+
+[1/22] 1609.02907    35.5s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[2/22] 1606.05250    39.6s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[3/22] 1706.03762    35.5s  search, 1 search(es); target rank: qdrant 25, reranked 3, sent 3, selected 1
+[4/22] 1707.06347    32.4s  search, 1 search(es); target rank: qdrant 11, reranked 14, sent None, selected None
+[5/22] 1810.04805    39.8s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[6/22] 1802.05365    31.2s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[7/22] 1908.10084    35.1s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[8/22] 1907.11692    39.3s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[9/22] 2005.11401    36.8s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[10/22] 2004.04906    31.9s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[11/22] 2106.09685    21.2s  search, 1 search(es); target rank: qdrant 5, reranked 22, sent None, selected None
+[12/22] 2101.08231    40.0s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[13/22] 2201.11903    32.2s  search, 1 search(es); target rank: qdrant 1, reranked 4, sent 4, selected 1
+[14/22] 2210.03629    33.8s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[15/22] 2309.15217    35.7s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[16/22] 2305.18290    39.7s  search, 1 search(es); target rank: qdrant 3, reranked 1, sent 1, selected 1
+[17/22] 2405.07437     2.8s  search, 1 search(es); target rank: qdrant 4, reranked 1, sent None, selected None
+[18/22] 2402.03216    36.6s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[19/22] 2504.20119     2.7s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent None, selected None
+[20/22] 2506.05176    36.4s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[21/22] 2601.08670    39.1s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+[22/22] 2602.20091    39.2s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent 1, selected 1
+
+Done in 716s. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261121_ground_truth_title_search_key\records.jsonl
+Run 20261121_ground_truth_title_search_key: 2 papers, message = the paper's title, mode key 'search='
+Loading the app, models and Qdrant connection...
+Loading the embedding models and connecting to Qdrant (http://localhost:6333, 'sebun_bge768_hybrid_full')...
+Loading the reranker BAAI/bge-reranker-base on cuda...
+20 papers already done, 2 to run. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261121_ground_truth_title_search_key\records.jsonl
+
+[1/2] 2405.07437     3.1s  search, 1 search(es); target rank: qdrant 4, reranked 1, sent None, selected 1
+[2/2] 2504.20119     0.5s  search, 1 search(es); target rank: qdrant 1, reranked 1, sent None, selected 1
+
+Done in 4s. Records: C:\Users\COM\Desktop\rag course proj\eval\runs\20261121_ground_truth_title_search_key\records.jsonl
