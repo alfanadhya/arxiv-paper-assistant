@@ -27,9 +27,12 @@
   header p { margin: 0; color: var(--muted); }
   h2 { font-size: 19px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
   h2 .num { color: var(--accent); margin-right: 8px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
   p { margin: 10px 0; }
   code { font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--code-bg);
          padding: 1px 5px; border-radius: 4px; }
+  pre { font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--code-bg);
+        padding: 10px 14px; border-radius: 8px; overflow-x: auto; margin: 10px 0; }
   .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -38,6 +41,7 @@
   td.n { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .note { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--warn);
           border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .muted { color: var(--muted); }
   ul { padding-left: 20px; margin: 8px 0; }
   li { margin: 6px 0; }
   footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
@@ -47,17 +51,19 @@
 <main>
   <header>
     <h1>Context window policy</h1>
-    <p>arXiv paper assistant · as of 21 November 2026 · model <code>qwen3:4b</code> served locally by Ollama</p>
+    <p>arXiv paper assistant · as of 22 November 2026 · model <code>qwen3:4b</code> served locally by Ollama</p>
   </header>
 
   <h2><span class="num">1</span>Window size</h2>
   <ul>
     <li><strong>8,192 tokens</strong>, set in the configuration (<code>OLLAMA_NUM_CTX=8192</code>). Every model call
       in the app uses the same window.</li>
-    <li>Without that setting the app reads the model’s own maximum from Ollama at start-up and caps it at
-      16,384 (<code>NUM_CTX_MAX</code>), because Ollama reserves GPU memory for the whole window each time the model
-      loads. All budgets below are derived from the window size, so they follow it if the model changes.</li>
-    <li>At start-up the app checks that the loaded model really runs with this window and reloads it if not.</li>
+    <li>With <code>OLLAMA_NUM_CTX=auto</code> (the default when the setting is absent) the app reads the model’s own
+      maximum from Ollama at start-up and caps it at 16,384 (<code>NUM_CTX_MAX</code>), because Ollama reserves GPU
+      memory for the whole window each time the model loads. Ollama reports 262,144 for <code>qwen3:4b</code>, so the
+      cap decides. All budgets below are derived from the window size, so they follow it if the model changes.</li>
+    <li>At start-up the app checks that the loaded model really runs with this window and reloads it if not. The
+      start-up message states the window and where it came from.</li>
   </ul>
 
   <h2><span class="num">2</span>What goes into the window</h2>
@@ -65,18 +71,39 @@
     <table>
       <thead><tr><th>Content</th><th>Limit</th><th>Why</th></tr></thead>
       <tbody>
-        <tr><td>Candidate papers per search</td><td class="n">5</td>
-            <td>“N+2”: the reranker’s top 3 plus two more, so the model has a choice without a long prompt</td></tr>
-        <tr><td>Abstract per paper in search results</td><td class="n">700 characters</td>
-            <td>Enough to judge relevance; the full abstract is fetched only on request (<code>get_paper</code>)</td></tr>
-        <tr><td>Authors per paper</td><td class="n">5 in search results, 40 via <code>get_paper</code></td>
+        <tr><td>Candidate papers per ranking call / agent search</td><td class="n">N+2 (default 5)</td>
+            <td>The model may pick up to N (settings slider, 2 to 5, default 3) and sees two more, so it has a
+              choice without a long prompt</td></tr>
+        <tr><td>Abstract per paper</td><td class="n">full in ranking calls; 700 characters in agent search results</td>
+            <td>Enough to judge relevance; the agent fetches the full abstract only on request (<code>get_paper</code>)</td></tr>
+        <tr><td>Authors per paper</td><td class="n">5 in agent search results, 40 via <code>get_paper</code></td>
             <td>Long author lists are rarely needed and cost many tokens</td></tr>
         <tr><td>Conversation history</td><td class="n">last 10 question/answer pairs</td>
-            <td>Supports follow-up questions; older turns are dropped</td></tr>
+            <td>Supports follow-up questions; older turns are dropped. Agent answers are stored with their cited
+              papers, the answer cut to 2,000 characters</td></tr>
         <tr><td>Model “thinking”</td><td class="n">not kept</td>
             <td>Removed from answers before they enter the history (as Qwen3’s guidance recommends)</td></tr>
         <tr><td>Tool rounds per question (research assistant)</td><td class="n">at most 4</td>
-            <td>Each round adds tool results to the prompt; the cap bounds growth</td></tr>
+            <td>Each round resends the conversation plus the new tool results; the cap bounds growth</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Fixed instructions, measured with the model</h3>
+  <p class="muted">Token counts as <code>qwen3:4b</code> reads them (Ollama’s prompt count), share of 8,192.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Instructions</th><th>Tokens</th><th>Share</th><th>Sent</th></tr></thead>
+      <tbody>
+        <tr><td>Agent system prompt + 3 tool definitions</td><td class="n">1,091 + 334 = 1,425</td><td class="n">17%</td>
+            <td>Again in every agent round (the API keeps no state; Ollama can reuse the unchanged beginning)</td></tr>
+        <tr><td>Spell check, <code>search=</code></td><td class="n">≈ 1,300</td><td class="n">16%</td>
+            <td>Once per message. 1,007 for the rules and eight examples, plus about 300 for the JSON format
+              instructions (estimated)</td></tr>
+        <tr><td>Spell check, <code>title=</code></td><td class="n">≈ 770</td><td class="n">9%</td><td>Once per message</td></tr>
+        <tr><td>Follow-up rewrite</td><td class="n">94</td><td class="n">1%</td><td>Only for <code>search=</code> follow-ups</td></tr>
+        <tr><td>Ranking call, fixed part (before the papers)</td><td class="n">≈ 155</td><td class="n">2%</td>
+            <td>Once per search; the papers make up the rest of the prompt</td></tr>
       </tbody>
     </table>
   </div>
@@ -86,28 +113,113 @@
     <li><strong>Research assistant (agent):</strong> at most 4,096 generated tokens per step, covering both the
       thinking and the answer. The written answer itself is asked to stay under about 200 words (350 for a
       comparison of papers).</li>
-    <li><strong><code>search=</code> route (ranking call):</strong> before sending, the app estimates the prompt size
-      (about 3.5 characters per token, on the safe side) and checks that the prompt plus 3,000 tokens of output room
-      fits the window. If 5 candidates do not fit, it sends 4 (N+1). The output cap is then set to whatever the window
-      has left after the prompt and a margin, at most 4,096, so the output can never overflow the window.</li>
     <li><strong><code>title=</code> route:</strong> no model call for the ranking (title similarity and the reranker
       decide), so it uses the window only for the short title check.</li>
+    <li><strong><code>search=</code> route (ranking call):</strong> the output room is calculated for each call:</li>
   </ul>
+  <pre>output room = window − prompt estimate − margin
+margin      = 10% of the prompt estimate, at least 256, at most 512 tokens
+prompt estimate = characters / 3.5 (on the safe side)</pre>
+  <ul>
+    <li>The model may use the whole output room, so prompt plus output can never overflow the window. There is no
+      fixed output cap (<code>RANKING_MAX_OUTPUT=0</code>).</li>
+    <li>A prompt is sent only if its output room is at least <strong>2,000 tokens</strong>
+      (<code>RANKING_OUTPUT_RESERVE</code>). With an 8,192 window that allows prompts of up to 5,680 tokens.</li>
+    <li>If N+2 papers would leave less, the app sends fewer: N+1, N, … down to 1. If even one paper leaves less, the
+      model is not called and the reranker’s order is shown; the diagnostics say why.</li>
+    <li>Because the margin is capped at 512, the 2,000-token minimum holds for any window size.</li>
+  </ul>
+
+  <h3>When N+2 fits (8,192 window)</h3>
+  <p class="muted">Worst case = every abstract at arXiv’s 1,920-character limit and a 180-word request.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>N (slider)</th><th>Papers sent</th><th>Typical prompt</th><th>Worst-case prompt</th><th>N+2 fits?</th></tr></thead>
+      <tbody>
+        <tr><td class="n">3 (default)</td><td class="n">5</td><td class="n">≈ 1,250</td><td class="n">≈ 3,750</td><td>Always</td></tr>
+        <tr><td class="n">4</td><td class="n">6</td><td class="n">≈ 1,500</td><td class="n">≈ 4,400</td><td>Always</td></tr>
+        <tr><td class="n">5</td><td class="n">7</td><td class="n">≈ 1,800</td><td class="n">≈ 5,000</td><td>Always</td></tr>
+        <tr class="muted"><td class="n">6 (not offered)</td><td class="n">8</td><td class="n">≈ 2,100</td><td class="n">≈ 5,650</td><td>Only just (limit 5,680)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The slider therefore stops at N = 5: N+2 always fits, and even the worst-case prompt leaves about 2,700 tokens
+    for the model’s thinking. A 16,384 window raises the limit to 13,872 tokens.</p>
 
   <h2><span class="num">4</span>Monitoring</h2>
   <ul>
     <li>Every model call records its prompt and output tokens as reported by Ollama.</li>
     <li>The diagnostics panel shows each step against the window, e.g.
-      <code>agent step 2: prompt 3,199 + output 698 = 3,897 / 8,192 tokens (48%)</code>, and the peak use per
-      question.</li>
-    <li>The same figures are saved with every evaluation case, which is the basis for the usage statistics.</li>
+      <code>agent step 2: prompt 3,199 + output 698 = 3,897 / 8,192 tokens (48%)</code>, the peak use per
+      question, and for each ranking call the output room it was given.</li>
+    <li>The same figures are saved with every evaluation case, which is the basis for the statistics below.</li>
   </ul>
 
-  <div class="note"><strong>Measured usage</strong> across the evaluation runs (by route: peak and per-step use,
-    median and worst case against 8,192 tokens) will be added once the current <code>search=</code> evaluation run
-    has finished.</div>
+  <h2><span class="num">5</span>Measured usage</h2>
 
-  <footer>Settings as configured in <code>threeofus_main.py</code> and <code>.env</code>.</footer>
+  <h3><code>search=</code> title run, 21 November (22 of 22 cases)</h3>
+  <p class="muted">Run <code>20261121_ground_truth_title_search_key</code>: 22 paper titles with <code>search=</code>,
+    8,192 window, reranker cutoff 0.7.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Call</th><th>Cases</th><th>Prompt (min / median / max)</th><th>Output (min / median / max)</th><th>Peak share</th></tr></thead>
+      <tbody>
+        <tr><td>Spell check</td><td class="n">22 of 22</td><td class="n">1,336 / 1,352 / 1,384</td>
+            <td class="n">29 / 36 / 53</td><td class="n">18%</td></tr>
+        <tr><td>Ranking</td><td class="n">20 of 22</td><td class="n">909 / 1,244 / 1,567</td>
+            <td class="n">2,119 / 3,753 / 4,096</td><td class="n">69%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>The 2 cases without a ranking call have survey targets, which are shown in reranker order without a model
+      call.</li>
+    <li>Peak window use per message: median 61%, maximum 69%.</li>
+    <li>Every case got N+2 = 5 papers; no prompt came near the limit.</li>
+  </ul>
+  <div class="note"><strong>Cut-off calls in this run.</strong> The run used a fixed 4,096-token output cap, since
+    removed. It cut off <strong>9 of the 22 cases</strong> (SQuAD, BERT, RoBERTa, Word Alignment, DPO, M3-Embedding,
+    Qwen3 Embedding, Parallel Context-of-Experts, How Retrieved Context Shapes); all 9 fell back to the reranker’s
+    order. The target was still shown first in all 9, but the model’s picks and its reason were lost, and these calls
+    took about 39.5 s against about 33 s. Under the current rule the same prompts would have had 6,370 to 7,030 tokens
+    of output room. The model’s thinking for this task typically runs 3,000 to 4,000 tokens.</div>
+
+  <h3>All evaluation runs, 17–21 November</h3>
+  <p class="muted">7 runs, 132 messages, 8,192 window.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Call</th><th>Calls</th><th>Prompt (median / 90th pct / max)</th><th>Output (median / 90th pct / max)</th><th>Max share</th><th>Cut off</th></tr></thead>
+      <tbody>
+        <tr><td>Agent step</td><td class="n">176</td><td class="n">1,902 / 4,269 / 5,407</td>
+            <td class="n">898 / 1,720 / 3,258</td><td class="n">83%</td><td class="n">0</td></tr>
+        <tr><td>Spell check</td><td class="n">44</td><td class="n">1,092 / 1,358 / 1,384</td>
+            <td class="n">36 / 44 / 53</td><td class="n">18%</td><td class="n">0</td></tr>
+        <tr><td>Ranking</td><td class="n">20</td><td class="n">1,244 / 1,487 / 1,567</td>
+            <td class="n">3,753 / 4,096 / 4,096</td><td class="n">69%</td><td class="n">9 (fixed cap, see above)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="table-wrap" style="margin-top:12px">
+    <table>
+      <thead><tr><th>Route</th><th>Messages</th><th>Model calls per message</th><th>Peak use per message (median / 90th pct / max)</th></tr></thead>
+      <tbody>
+        <tr><td>Research assistant (agent)</td><td class="n">88</td><td class="n">2 (never more)</td><td class="n">53% / 68% / 83%</td></tr>
+        <tr><td><code>search=</code></td><td class="n">20</td><td class="n">2</td><td class="n">61% / 67% / 69%</td></tr>
+        <tr><td><code>title=</code> and survey-only searches</td><td class="n">24</td><td class="n">1</td><td class="n">10% / 11% / 17%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>Agent:</strong> no step was cut off and no question needed more than 2 rounds. Its largest call used
+      83% of the window, almost all of it the resent conversation and search results.</li>
+    <li><strong>Ranking</strong> is the only call whose output dominates: a small prompt, but 3,000 to 4,000 tokens of
+      thinking.</li>
+    <li><strong>Before any output limit</strong> (dev runs of 12 November), ranking outputs reached 6,791 tokens and
+      one call used 8,178 of 8,192 tokens, which is why the output room is now calculated per call.</li>
+  </ul>
+
+  <footer>Settings as configured in <code>threeofus_main.py</code> and <code>.env</code>; statistics from the
+    <code>[context]</code> lines saved in <code>eval/runs/*/records.jsonl</code>.</footer>
 </main>
 </body>
 </html>

@@ -93,7 +93,7 @@ SURVEYS_SHOWN = 5        # surveys shown: the reranker's top this many (no LLM r
 # returns. This is the default; in the GUI each user sets their own value with the "Papers to pick (N)" slider
 # (within the range below), and run_turn applies it to that message through max_papers().
 MAX_PAPERS = 3
-MAX_PAPERS_MIN, MAX_PAPERS_MAX = 2, 6
+MAX_PAPERS_MIN, MAX_PAPERS_MAX = 2, 5   # N+2 always fits an 8,192 window up to N = 5 (eval/context_window_policy.html)
 _max_papers = contextvars.ContextVar("max_papers", default=MAX_PAPERS)
 
 
@@ -130,10 +130,27 @@ def clamp_cutoff(value) -> float:
         return round(min(max(float(value), RERANK_CUTOFF_MIN), RERANK_CUTOFF_MAX), 2)
     except (TypeError, ValueError):
         return RERANK_CUTOFF
-RANKING_OUTPUT_RESERVE = int(os.getenv("RANKING_OUTPUT_RESERVE", "3000"))   # least output room a ranking prompt leaves
-# Output cap of one ranking call = what the window has left: NUM_CTX - prompt estimate - margin, at most this
-# (a long answer is also a slow one). So the output can never overflow the window, whatever the model.
-RANKING_MAX_OUTPUT = int(os.getenv("RANKING_MAX_OUTPUT", "4096"))
+# Ranking call budget, all derived from the window:
+#   output room = NUM_CTX - prompt estimate - margin          (margin = 10% of the prompt, 256 to 512 tokens)
+# The model may write the whole output room, so prompt + output never overflow the window. A prompt is only
+# sent if its output room is at least RANKING_OUTPUT_RESERVE; otherwise fewer papers are sent (N+2, N+1, N, ...
+# down to 1), and if even one paper leaves less, the model is not called and the reranker order is used.
+RANKING_OUTPUT_RESERVE = int(os.getenv("RANKING_OUTPUT_RESERVE", "2000"))   # least output room a ranking call gets
+RANKING_MARGIN_MIN, RANKING_MARGIN_MAX = 256, 512
+# RANKING_MAX_OUTPUT > 0 also caps the output at that many tokens; 0 (the default) = no extra cap. A fixed 4,096
+# cut off 9 of the 22 cases in the 2026-11-21 search= title run (median output 3,753 tokens, mostly thinking), and
+# every cut-off call fell back to the reranker order.
+RANKING_MAX_OUTPUT = int(os.getenv("RANKING_MAX_OUTPUT", "0"))
+
+
+# Safety margin for the prompt estimate's error (characters / 3.5 is an estimate, not a token count).
+def ranking_margin(prompt_est: int) -> int:
+    return min(max(RANKING_MARGIN_MIN, prompt_est // 10), RANKING_MARGIN_MAX)
+
+
+# Output room the window leaves after a prompt of this estimated size.
+def ranking_room(prompt_est: int) -> int:
+    return NUM_CTX - prompt_est - ranking_margin(prompt_est)
 CHARS_PER_TOKEN = 3.5    # rough, conservative chars/token estimate for the context budget
 MAX_HISTORY_TURNS = 10   # question/answer pairs kept for follow-up questions
 
@@ -363,6 +380,7 @@ class SearchResponse:
     answer: str = ""                                    # chat mode: the LLM's reply
     search_prompt: str = ""                             # prompt after follow-up rewrite (= prompt if none)
     ranking_fallback: bool = False                      # True if the model failed and retrieval order was used
+    rank_skip: str = ""                                 # why the ranking call was skipped (prompt too big), else ""
     analysis: QueryAnalysis | None = None
     survey_focus: bool = False
     warnings: list[str] = field(default_factory=list)
@@ -1293,35 +1311,53 @@ def estimate_tokens(text: str) -> int:
     return int(len(text) / CHARS_PER_TOKEN) + 1
 
 
-# Estimated tokens of the ranking prompt for these candidates (system text + papers + surveys + query).
-def ranking_prompt_tokens(pool: str, hits: list, topic: str, limit: int) -> int:
-    messages = RANK_POOL_PROMPT.format_messages(**rank_inputs(pool, hits, topic, limit))
+# Estimated tokens of the ranking prompt for these candidates (system text + papers + query + request/filters):
+# the same inputs the ranking call gets, so the fit check and the output cap agree.
+def ranking_prompt_tokens(pool: str, hits: list, topic: str, limit: int, request: str = "",
+                          filters: str = "none") -> int:
+    messages = RANK_POOL_PROMPT.format_messages(**rank_inputs(pool, hits, topic, limit, request, filters))
     return sum(estimate_tokens(str(m.content)) for m in messages)
 
 
-# Pick how many reranked candidates of ONE pool its ranking call sees: N+2 if that prompt plus
-# RANKING_OUTPUT_RESERVE fits in NUM_CTX, else N+1. Returns (hits to send, note part, fits).
-def fit_pool(pool: str, hits: list, n: int, topic: str) -> tuple[list, str, bool]:
-    budget = NUM_CTX - RANKING_OUTPUT_RESERVE
-    for extra in range(MAX_EXTRA_CANDIDATES, MIN_EXTRA_CANDIDATES - 1, -1):
-        sent = hits[:n + extra]
-        est = ranking_prompt_tokens(pool, sent, topic, n)
-        if est <= budget:
-            return sent, f"N+{extra} {pool}s ({len(sent)}, prompt ~{est:,} tokens)", True
-    return sent, f"N+{MIN_EXTRA_CANDIDATES} {pool}s ({len(sent)}, prompt ~{est:,} tokens, TOO BIG)", False
+# Label of a candidate count relative to N: 'N+2', 'N+1', 'N', 'N-1', ...
+def _count_label(count: int, n: int) -> str:
+    return "N" if count == n else f"N{count - n:+d}"
+
+
+# Pick how many reranked candidates of ONE pool its ranking call sees: the most of N+2, N+1, N, ... 1 whose
+# prompt still leaves RANKING_OUTPUT_RESERVE tokens of output room (ranking_room). Returns (hits to send,
+# note part, fits); fits is False if even one candidate leaves less (then the model is not called).
+def fit_pool(pool: str, hits: list, n: int, topic: str, request: str = "",
+             filters: str = "none") -> tuple[list, str, bool]:
+    counts = sorted({min(c, len(hits)) for c in range(1, n + MAX_EXTRA_CANDIDATES + 1)}, reverse=True)
+    est = 0
+    for count in counts:
+        sent = hits[:count]
+        est = ranking_prompt_tokens(pool, sent, topic, n, request, filters)
+        room = ranking_room(est)
+        if room >= RANKING_OUTPUT_RESERVE:
+            return sent, (f"{_count_label(count, n)} {pool}s ({len(sent)}, prompt ~{est:,} tokens, "
+                          f"{room:,} left for output)"), True
+    return [], f"even 1 {pool} needs a prompt of ~{est:,} tokens", False
 
 
 # Research papers only (surveys skip the LLM): how many reranked papers the ranking call sees. Returns
-# (papers, note).
-def fit_candidates(papers: list, n_papers: int, topic: str) -> tuple[list, str]:
+# (papers, note). If not even one paper leaves RANKING_OUTPUT_RESERVE of output room, the reranker's top N are
+# returned and response.rank_skip says why, so rank_pool uses the reranker order without calling the model.
+def fit_candidates(papers: list, n_papers: int, topic: str, response: "SearchResponse | None" = None
+                   ) -> tuple[list, str]:
     if not papers:
         return [], "[rerank] No research papers to send to the LLM."
-    p, p_note, p_fits = fit_pool("paper", papers, n_papers, topic)
+    request, filters = (response.request, response.filters) if response is not None else ("", "none")
+    p, p_note, p_fits = fit_pool("paper", papers, n_papers, topic, request, filters)
     if p_fits:
-        return p, (f"[rerank] Sending {p_note} to the LLM; prompt + {RANKING_OUTPUT_RESERVE:,} reserved for its "
-                   f"output fits {NUM_CTX:,}.")
-    return p, (f"[rerank] WARNING: {p_note}: even N+{MIN_EXTRA_CANDIDATES} + {RANKING_OUTPUT_RESERVE:,} reserved "
-               f"> {NUM_CTX:,} tokens; sending anyway.")
+        return p, (f"[rerank] Sending {p_note} to the LLM (at least {RANKING_OUTPUT_RESERVE:,} required; "
+                   f"window {NUM_CTX:,}).")
+    reason = (f"{p_note}, leaving under {RANKING_OUTPUT_RESERVE:,} tokens of output in the {NUM_CTX:,}-token "
+              "window; LLM ranking skipped")
+    if response is not None:
+        response.rank_skip = reason
+    return papers[:n_papers], f"[rerank] WARNING: {reason}."
 
 
 # Record the picks in the rank trace: the papers' LLM order ("llm" or "fallback") and the displayed order;
@@ -1361,15 +1397,17 @@ class PoolOutcome:
     reasoning: str = ""
 
 
-# Output cap for one ranking call: whatever the window has left after the prompt (estimated), minus a margin
-# for the estimate's error, at most RANKING_MAX_OUTPUT. Returns (cap, diagnostics text).
+# Output cap for one ranking call: the output room the window leaves after the prompt (ranking_room), at most
+# RANKING_MAX_OUTPUT if that is set. fit_candidates already made sure the room is at least
+# RANKING_OUTPUT_RESERVE. Returns (cap, diagnostics text).
 def ranking_output_cap(inputs: dict) -> tuple[int, str]:
     est = sum(estimate_tokens(str(m.content)) for m in RANK_POOL_PROMPT.format_messages(**inputs))
-    margin = max(256, est // 10)
-    left = NUM_CTX - est - margin
-    cap = max(512, min(left, RANKING_MAX_OUTPUT))
-    return cap, (f"output capped at {cap:,} tokens = min({NUM_CTX:,} window - ~{est:,} prompt - {margin:,} margin, "
-                 f"{RANKING_MAX_OUTPUT:,})")
+    margin = ranking_margin(est)
+    room = ranking_room(est)
+    cap = max(1, min(room, RANKING_MAX_OUTPUT) if RANKING_MAX_OUTPUT > 0 else room)
+    limit = f", at most {RANKING_MAX_OUTPUT:,}" if RANKING_MAX_OUTPUT > 0 else ""
+    return cap, (f"output capped at {cap:,} tokens = {NUM_CTX:,} window - ~{est:,} prompt - {margin:,} margin"
+                 f"{limit}")
 
 
 # The ranking chain with a given output cap (the model is the same, so Ollama does not reload it); a few caps
@@ -1395,6 +1433,8 @@ def rank_pool(response: SearchResponse, pool: str, hits: list, topic: str, limit
         diag.append(f"[ranking] FALLBACK ({name}): {reason} -> top {name} in reranker order.")
         return PoolOutcome(picks=list(range(1, min(limit, len(hits)) + 1)), picked_by="fallback")
 
+    if response.rank_skip:   # the prompt would not leave enough output room (fit_candidates)
+        return fallback(response.rank_skip)
     log(f"Asking {LLM_LABEL} to pick the best {name}: top {len(hits)} of {found} found...")
     inputs = rank_inputs(pool, hits, topic, limit, response.request, response.filters)
     cap, cap_note = ranking_output_cap(inputs)
@@ -1537,7 +1577,8 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
                                "Try a broader topic, or remove the year/category from your prompt.")
         return response
 
-    # Rerank each pool with the cross-encoder; the LLM sees N+2 papers if the context allows, else N+1.
+    # Rerank each pool with the cross-encoder; the LLM sees N+2 papers if the context allows, else fewer
+    # (fit_candidates: every ranking call keeps at least RANKING_OUTPUT_RESERVE tokens of output room).
     # Surveys are not sent to the LLM: the reranker's top SURVEYS_SHOWN are shown (newest first only with the box).
     diag = response.diagnostics
     diag.track_pool("paper", paper_pool, origin)
@@ -1548,7 +1589,7 @@ def run_query(prompt: str, log: LogFn = lambda msg: print(msg, flush=True),
     # Papers below RERANK_CUTOFF are dropped before anything is sent to the LLM or shown.
     papers_kept = above_cutoff(papers_ranked, paper_scores)
     surveys_kept = above_cutoff(surveys_ranked, survey_scores)
-    response.papers, fit_note = fit_candidates(papers_kept, max_papers(), a.corrected_query)
+    response.papers, fit_note = fit_candidates(papers_kept, max_papers(), a.corrected_query, response)
     response.surveys = surveys_kept[:SURVEYS_SHOWN]
     if paper_scores is not None:
         diag.note_rerank("paper", paper_pool, papers_ranked, paper_scores, len(response.papers), RERANKER_MODEL)
