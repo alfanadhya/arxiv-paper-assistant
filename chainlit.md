@@ -16,7 +16,7 @@ Start a message with a keyword to skip the assistant and run a fixed search. A k
 
 | Keyword | What it does | Example |
 |---|---|---|
-| `search=` | Lists research papers and surveys on a topic | `search= graph auto-encoders year=2016- author=Kipf; Welling` |
+| `search=` | Lists research papers and surveys on a new topic (searched as typed; not for follow-up requests) | `search= graph auto-encoders year=2016- author=Kipf; Welling` |
 | `title=` | Finds one paper by its exact title | `title= Attention is all you need` |
 
 Filters, with `search=` or `title=`:
@@ -31,6 +31,8 @@ Papers are numbered 1, 2, 3, … in each result, and every new result starts aga
 - *Compare 1 and 2*: a short summary of each paper (topic, objective, method, results) and how they differ
 - *List all authors of 1 and 3*
 - *Which is newest?*
+
+Ask follow-ups without a keyword. `search=` is for a new topic and `title=` for one paper: both search only what you type and do not read the conversation, so `search= more like 2` would be searched literally.
 
 ## Reading list and export
 

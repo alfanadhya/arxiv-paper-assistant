@@ -50,19 +50,45 @@ LLM_LABEL = f"Groq ({GROQ_MODEL})" if LLM_PROVIDER == "groq" else f"Ollama ({OLL
 # starts, but at most NUM_CTX_MAX, since Ollama reserves GPU memory for the whole window on every load. A
 # number (e.g. OLLAMA_NUM_CTX=8192) fixes the window. A different model therefore gets its own window
 # automatically, and every budget below that is derived from NUM_CTX follows it.
+# Groq: GROQ_NUM_CTX=auto (the default) reads the model's context_window from Groq's models API (no GPU, so no
+# NUM_CTX_MAX cap), then limits it to GROQ_MAX_REQUEST_TOKENS: Groq counts each request (prompt + max_tokens)
+# against the per-minute token limit of the plan (free tier: 8,000/min), so a request larger than that fails
+# even when the window is far bigger. Set GROQ_MAX_REQUEST_TOKENS to your plan's limit (0 = no limit).
 NUM_CTX_MAX = int(os.getenv("NUM_CTX_MAX", "16384"))
+GROQ_MAX_REQUEST_TOKENS = int(os.getenv("GROQ_MAX_REQUEST_TOKENS", "8000"))
+
+
+# Groq: (window, where it came from); never raises.
+def resolve_groq_ctx() -> tuple[int, str]:
+    raw = os.getenv("GROQ_NUM_CTX", "auto").strip().lower()
+    if raw not in ("", "auto") and raw.isdigit():
+        window, source = int(raw), "GROQ_NUM_CTX"
+    else:
+        try:
+            import httpx
+            models = httpx.get("https://api.groq.com/openai/v1/models", timeout=5,
+                               headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY', '')}"}).json()
+            window = next(int(m["context_window"]) for m in models.get("data", []) if m.get("id") == GROQ_MODEL)
+            source = "auto: Groq model window"
+        except Exception as exc:
+            window, source = NUM_CTX_MAX, f"NUM_CTX_MAX (Groq model window not readable: {type(exc).__name__})"
+    if GROQ_MAX_REQUEST_TOKENS and window > GROQ_MAX_REQUEST_TOKENS:
+        return GROQ_MAX_REQUEST_TOKENS, f"{source} {window:,}, limited by GROQ_MAX_REQUEST_TOKENS (per-minute limit)"
+    return window, source
 
 
 # (window, where it came from) for the diagnostics and the start-up check; never raises.
 def resolve_num_ctx() -> tuple[int, str]:
+    if LLM_PROVIDER == "groq":
+        return resolve_groq_ctx()
     raw = os.getenv("OLLAMA_NUM_CTX", "auto").strip().lower()
     if raw not in ("", "auto"):
         try:
             return int(raw), "OLLAMA_NUM_CTX"
         except ValueError:
             return NUM_CTX_MAX, f"NUM_CTX_MAX (OLLAMA_NUM_CTX='{raw}' is not a number)"
-    if LLM_PROVIDER == "groq" or not OLLAMA_MODEL:
-        return NUM_CTX_MAX, "NUM_CTX_MAX (model maximum not read for this provider)"
+    if not OLLAMA_MODEL:
+        return NUM_CTX_MAX, "NUM_CTX_MAX (no OLLAMA_MODEL set)"
     try:
         import httpx
         info = httpx.post(f"{OLLAMA_URL}/api/show", json={"model": OLLAMA_MODEL}, timeout=3).json()
@@ -157,8 +183,20 @@ MAX_HISTORY_TURNS = 10   # question/answer pairs kept for follow-up questions
 # Messages without search= / title= are answered by the agent (run_agent): the LLM calls the search tools
 # itself (search, look up a paper, read the papers shown). AGENT=0 in .env sends them to the normal search.
 AGENT_ENABLED = os.getenv("AGENT", "1").strip().lower() not in ("0", "false", "no", "off")
-AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "4"))      # tool rounds before the model must answer
-AGENT_MAX_TOKENS = int(os.getenv("AGENT_MAX_TOKENS", "4096")) # generated-token cap per step (thinking + answer)
+AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "3"))      # tool rounds before the model must answer
+# Generated-token cap per agent step (thinking + answer). Measured outputs: ~650-1,200 typical, up to ~2,460.
+# Groq reserves the whole cap against the per-minute token limit before it runs a request (see
+# GROQ_MAX_REQUEST_TOKENS), so on Groq the default is just above the measured peak; Ollama keeps 4,096.
+AGENT_MAX_TOKENS = int(os.getenv("AGENT_MAX_TOKENS", "2560" if LLM_PROVIDER == "groq" else "4096"))
+# History budget (see context_budget), computed from the window in force (Ollama here, Groq in production):
+# the banner shows when the history the agent would get next reaches HISTORY_BANNER_PCT of the window, but never
+# more than what is left after the fixed parts of an agent step (system prompt, tool definitions, one N+2 search
+# result, output room). The (planned) history summary shrinks it to HISTORY_SUMMARY_PCT, at most half the banner.
+HISTORY_BANNER_PCT = int(os.getenv("HISTORY_BANNER_PCT", "22"))   # ~1,800 tokens at an 8k window
+HISTORY_SUMMARY_PCT = int(os.getenv("HISTORY_SUMMARY_PCT", "15"))
+AGENT_TOOL_SCHEMA_TOKENS = 400   # the three tool definitions sent with every agent step (rough)
+AGENT_OUTPUT_ROOM = 2048         # Ollama: output room kept (measured thinking + answer ~700-900 tokens); on Groq
+                                 # the whole max_tokens counts against the per-minute limit, so AGENT_MAX_TOKENS
 # Candidates one search_papers call returns to the model (those at or above the reranker cutoff, best first).
 # Fixed by the system, not chosen by the model: it reads them all and decides itself which to cite.
 # Same N+2 rule as the search route (N = MAX_PAPERS), applied after the cutoff. The N slots go to the reranker's
@@ -395,6 +433,8 @@ class SearchResponse:
     request: str = ""                                   # the user's request with its year=/author= keys (LLM context)
     filters: str = "none"                               # metadata filters Qdrant used (describe_filters), LLM context
     memory_note: str = ""                               # agent: papers cited, kept in the conversation memory only
+    memory_answer: str = ""                             # agent: the answer with citations as [arXiv id] (no
+                                                        # card labels), as kept in the conversation memory
     memory_papers: list[str] = field(default_factory=list)   # agent: arXiv ids of the papers cited
     # agent: one entry per search_papers call (filters, reranked ids + scores, ids returned to the model), for eval
     agent_searches: list[dict] = field(default_factory=list)
@@ -856,24 +896,30 @@ def select_history(history: list[dict] | None) -> tuple[list[dict], str]:
     pairs = [entries[i:i + 2] for i in range(0, len(entries) - 1, 2)]
     kept = [pair for pair in pairs if (pair[-1].get("tags") or {}).get("ok", True)]
     failed = len(pairs) - len(kept)
+    size = sum(estimate_tokens(str(e.get("content") or "")) for pair in kept for e in pair)
     note = (f"[memory] Context reads {len(kept)} of {len(pairs)} earlier turn(s)"
-            + (f"; skipped {failed} failed" if failed else "") + ".")
+            + (f"; skipped {failed} failed" if failed else "")
+            + f"; history ~{size:,} tokens (long-chat banner at ~{context_budget()['banner']:,}).")
     return [{"role": e["role"], "content": e["content"]} for pair in kept for e in pair], note
 
 
-# Assistant turn text for the history: summary line plus numbered picks with arXiv ids.
+# The numbering of the cards on screen is kept apart from the conversation: the session holds it (app
+# last_results, updated only when new cards are shown) and every agent request gets it as one message right
+# before the question (run_agent). The stored turns name papers by arXiv id only, never by a card label, so an
+# old number can never be mistaken for a current one.
+NUMBERING_HEAD = "Numbering of the papers on screen now (labels the user may refer to):"
+
+
+# Assistant turn text for the history: papers named by arXiv id only (no card labels).
 def assistant_turn_text(r: SearchResponse) -> str:
     if r.mode == "agent":   # the papers cited are remembered here (not shown in the answer)
-        body = r.answer[:2000] if r.answer else "No answer: " + " ".join(r.errors)
+        body = (r.memory_answer or r.answer)[:2000] if r.answer else "No answer: " + " ".join(r.errors)
         return f"{r.memory_note}\n{body}" if r.memory_note else body
     if r.errors:
         return "No results: " + " ".join(r.errors)
     topic = r.analysis.corrected_query if r.analysis else r.search_prompt
-    lines = [f"Papers for '{topic}':"]
-    # the numbers on the cards of this result (every result is numbered from 1)
-    lines += [f"[{n}] [{h.arxiv_id}] {h.title}" for n, h in ((n, r.papers[n - 1]) for n in r.top_papers)]
-    lines += [f"[S{n}] [{h.arxiv_id}] {h.title}" for n, h in ((n, r.surveys[n - 1]) for n in r.top_surveys)]
-    return "\n".join(lines)
+    hits = [r.papers[n - 1] for n in r.top_papers] + [r.surveys[n - 1] for n in r.top_surveys]
+    return f"Papers for '{topic}': " + "; ".join(f"[{h.arxiv_id}] {h.title}" for h in hits)
 
 
 # True if the prompt refers back to earlier turns ("the second one", "more like that", "same authors", ...).
@@ -1197,6 +1243,7 @@ def health_check(log: LogFn = lambda msg: None, step: StepFn | None = None) -> l
         status.append(f"Groq `{GROQ_MODEL}`: " + ("API key set" if os.getenv("GROQ_API_KEY") else
                                                   "GROQ_API_KEY missing in .env; searches will fall back to "
                                                   "reranker order"))
+        status.append(context_budget_text())
         if os.getenv("GROQ_API_KEY"):
             report("llm", "done", "", f"Groq {GROQ_MODEL}: API key set")
         else:
@@ -1231,6 +1278,7 @@ def health_check(log: LogFn = lambda msg: None, step: StepFn | None = None) -> l
                       "fall back to reranker order")
         report("llm", "warn", "Not available: results come in the ranking model's order, without answers",
                f"Ollama {OLLAMA_MODEL}: {type(exc).__name__}: {exc}")
+    status.append(context_budget_text())
     return status
 
 
@@ -1309,6 +1357,52 @@ def above_cutoff(ranked: list, scores: list | None) -> list:
 # Rough token count of text (no tokenizer call; ~CHARS_PER_TOKEN characters per token, on the safe side).
 def estimate_tokens(text: str) -> int:
     return int(len(text) / CHARS_PER_TOKEN) + 1
+
+
+# The agent's "nothing found" reply: NOTHING_FOUND plus what was searched (each query with its filters), so the
+# user can see what to reword.
+def nothing_found_text(searches: list[dict]) -> str:
+    def one(s: dict) -> str:
+        filters = []
+        if s.get("authors"):
+            filters.append("author " + "; ".join(s["authors"]))
+        if s.get("year_from") or s.get("year_to"):
+            y_from, y_to = s.get("year_from"), s.get("year_to")
+            filters.append(f"year {y_from}" if y_from == y_to else f"year {y_from or ''}-{y_to or ''}")
+        return f"'{s.get('query') or 'papers'}'" + (f" ({', '.join(filters)})" if filters else "")
+    tried = "; ".join(dict.fromkeys(one(s) for s in searches))
+    return NOTHING_FOUND + (f" Searched for: {tried}." if tried else "")
+
+
+# The context budget of an agent step for the window in force: the fixed parts (estimated) and the history
+# limits derived from them. Same numbers on Ollama and Groq; only NUM_CTX and the output room differ.
+def context_budget() -> dict:
+    output_room = AGENT_MAX_TOKENS if LLM_PROVIDER == "groq" else AGENT_OUTPUT_ROOM
+    result = agent_candidates() * estimate_tokens("x" * (AGENT_ABSTRACT_CHARS + 300))   # abstract + title/authors
+    # the numbering message sent before the question (run_agent): up to N+2 cards, one line each
+    numbering = estimate_tokens(NUMBERING_HEAD) + agent_candidates() * estimate_tokens("x" * 110)
+    fixed = estimate_tokens(AGENT_SYSTEM_PROMPT) + AGENT_TOOL_SCHEMA_TOKENS + result + numbering + output_room
+    room = max(NUM_CTX - fixed, 0)
+    banner = min(NUM_CTX * HISTORY_BANNER_PCT // 100, room)
+    return {"window": NUM_CTX, "source": NUM_CTX_SOURCE, "fixed": fixed, "output_room": output_room,
+            "room": room, "banner": banner, "summary": min(NUM_CTX * HISTORY_SUMMARY_PCT // 100, banner // 2)}
+
+
+# One line for the start-up check / diagnostics describing the budget.
+def context_budget_text() -> str:
+    b = context_budget()
+    return (f"Context: window {b['window']:,} tokens ({b['source']}); fixed parts of an agent step ~{b['fixed']:,} "
+            f"(incl. output room {b['output_room']:,}) -> ~{b['room']:,} left for history; long-chat banner at "
+            f"~{b['banner']:,}, summary target ~{b['summary']:,}")
+
+
+# "Long chat" banner state for a chat's history: (estimated tokens of the history the agent would get next,
+# the banner limit, whether to show the banner). Same selection as the agent's (select_history).
+def history_banner(history: list[dict] | None) -> tuple[int, int, bool]:
+    turns, _ = select_history(history)
+    tokens = sum(estimate_tokens(str(e.get("content") or "")) for e in turns)
+    limit = context_budget()["banner"]
+    return tokens, limit, tokens >= limit
 
 
 # Estimated tokens of the ranking prompt for these candidates (system text + papers + query + request/filters):
@@ -1480,11 +1574,11 @@ def rank_papers(response: SearchResponse, topic: str, log: LogFn = lambda msg: N
     # Best/criteria/why: the LLM's best paper; for a survey query (no papers) the reranker's top survey
     if response.survey_focus:
         if response.surveys:
-            response.best = ("S1", response.surveys[0])
+            response.best = (f"S{response.top_surveys.index(1) + 1}", response.surveys[0])   # label on screen
             response.why_best = "Highest reranker score among the surveys (surveys are not ranked by the LLM)."
     else:
         if p.picks:
-            response.best = (f"{p.picks[0]}", response.papers[p.picks[0] - 1])
+            response.best = (f"{response.top_papers.index(p.picks[0]) + 1}", response.papers[p.picks[0] - 1])
         response.criteria = p.criteria
         response.why_best = p.why_best or (
             "Highest reranker score (the model was unavailable to judge the papers)." if p.picked_by == "fallback"
@@ -1838,6 +1932,9 @@ Tools:
   (search results list at most 5 authors).
 - list_current_results(): the papers the user is looking at now (labels 1, 2, S3, ...), when the question
   refers to them. Numbers refer to the papers of the latest result only; each new result is numbered from 1.
+  The numbering in force is the message "Numbering of the papers on screen now" just before the question; the
+  earlier conversation names papers by arXiv id only. Never call a paper "Paper N" by its position in a search
+  result.
 
 Read ALL candidates papers retruned by the search before deciding: the best score is not always the best match.
 Cite only the papers your answer actually uses. A question about one paper ("the paper that ...", "which paper
@@ -1851,8 +1948,13 @@ the question, say so plainly.
 Questions about the papers shown (by label, e.g. "compare 1 and 2", "list all authors of 1 and 3", "which is
 newest?") are answered from them; call get_paper for details the listing lacks.
 
-To COMPARE papers shown (e.g. "compare 2 and 3", "2 vs 3", "difference between 1 and 4"): do not search; call
-get_paper for each paper, then for each paper in turn write its title with its arXiv id in square brackets,
+A follow-up that relates a paper shown to something NOT shown needs a search: a paper named by its title or
+authors ("compare 1 with the paper called ...", "1 vs the paper by ..."), or papers similar or related to one shown
+("papers similar to 2", "related work to 1", "more like 3"). Search for that paper by its full title (or for the
+topic of the paper shown), call get_paper for the paper shown, then answer.
+
+To COMPARE papers shown (e.g. "compare 2 and 3", "2 vs 3", "difference between 1 and 4"): do not search for papers
+that are already shown; call get_paper for each paper, then for each paper in turn write its title with its arXiv id in square brackets,
 followed by four short bullets:
 - Topic: the field or problem area the paper is in.
 - Objective: what the paper sets out to achieve.
@@ -1873,16 +1975,44 @@ GREETING_RE = re.compile(r"\s*(?:hi|hello|hey|hiya|yo|good (?:morning|afternoon|
 USAGE_RE = re.compile(r"\b(?:how (?:do|can|should) i (?:use|search|ask)|what can you do|how does (?:this|it) work|"
                       r"who are you|what are you|help me use)\b", re.IGNORECASE)
 LABEL_TOKEN_RE = re.compile(r"(?<![\w.])\[?[sS]?\d{1,3}\]?(?![\w.])")   # a paper label: 3, S2, [4]
+# Questions about the papers shown without a label ("which is newest?", "the oldest one")
+#   (only as a question about them, so "find the latest papers on X" is not taken for one)
+ON_SCREEN_RE = re.compile(r"\b(?:(?:which|what)(?: one| paper)? is (?:the )?(?:newest|oldest|latest|earliest|"
+                          r"most recent|longest|shortest)|the (?:newest|oldest|latest|earliest) one)\b", re.IGNORECASE)
+# Follow-ups that need papers beyond the ones shown: similar / related papers ... ("how are 1 and 2 related?" or
+# "are they similar?" are about the papers shown and do not count)
+SIMILAR_RE = re.compile(r"\b(?:similar (?:papers|work|ones|to)|related (?:papers|work|to)|relevant to|more like|"
+                        r"(?:papers|work|ones) like|builds? on|follow[- ]?up work|papers (?:that )?cite|cited by|"
+                        r"citing)\b", re.IGNORECASE)
+# ... and comparisons with something named (a title or authors), see names_other_paper
+RELATE_RE = re.compile(r"\b(?:compare|comparison|compared|vs\.?|versus|against|differen\w*|with the paper|"
+                       r"paper (?:called|titled|named|by)|the paper)\b", re.IGNORECASE)
+RELATE_STOP = set("""a an and are as at be between by called compare compared comparison difference differences
+different do does for from how in is it its named of on or paper papers same than that the their them these
+this those titled to versus vs what which with""".split())
+
+
+# True if the message names something besides the papers shown: at least 3 words (a title, a topic, author
+# names) that occur in none of their titles, labels and request words not counted.
+def names_other_paper(q: str, shown: list[dict]) -> bool:
+    on_screen = {w for p in shown for w in re.findall(r"[a-z0-9]+", str(p.get("title") or "").lower())}
+    words = {w for w in re.findall(r"[a-z][a-z0-9-]+", LABEL_TOKEN_RE.sub(" ", q).lower())
+             if len(w) > 2 and w not in RELATE_STOP}
+    return len(words - on_screen) >= 3
 
 
 # True if a message the model answered without any tool should have been searched: not a greeting or a
-# question about the tool, not about the papers on screen (a label like '3'), and not a follow-up on earlier
+# question about the tool, not about the papers on screen only (a label like '3'), and not a follow-up on earlier
 # turns (a back-reference word such as 'these', 'it', 'the second', only counted when there is something earlier).
+# A follow-up that relates a paper shown to papers NOT shown (similar / related papers, or a comparison with a
+# paper named by its title or authors) does need a search.
 def must_search(question: str, history: list[dict] | None, shown: list[dict] | None) -> bool:
     q = " ".join((question or "").split())
     if not q or GREETING_RE.fullmatch(q) or USAGE_RE.search(q):
         return False
-    if shown and LABEL_TOKEN_RE.search(q):
+    if shown and (SIMILAR_RE.search(q) or (RELATE_RE.search(q) and names_other_paper(q, shown))):
+        return True
+    if shown and (LABEL_TOKEN_RE.search(q) or ON_SCREEN_RE.search(q)):
         return False
     if (history or shown) and looks_like_followup(q):
         return False
@@ -2090,10 +2220,10 @@ def agent_tools(found: dict, steps: list[str], shown: list[dict], known: dict[st
                          + ".")
         result = {"papers": [dict(agent_paper(h), rerank_rank=rerank_rank_of[h.arxiv_id],
                                   relevance=round(score_of[h.arxiv_id], 2)) for h in top]} if top else \
-            {"papers": [], "note": ("No paper was relevant enough (reranker score below "
-                                    f"{rerank_cutoff()}). Try another wording, or fewer filters. Tell the user "
-                                    "nothing relevant was found; do not suggest papers from memory." if pool else
-                                    "No papers matched; try a broader query or fewer filters.")}
+            {"papers": [], "note": (("No paper was relevant enough (reranker score below "
+                                     f"{rerank_cutoff()})." if pool else "No papers matched.")
+                                    + " You may search ONCE more with other wording or fewer filters; if that also "
+                                    "finds nothing, the application tells the user. Never suggest papers from memory.")}
         if top and last_name_only:
             result["note"] = (f"No paper by {' & '.join(authors)} with that first name. These papers are by authors "
                               f"with the same last name ({', '.join(last_name_only)}), who may be different people: "
@@ -2184,12 +2314,12 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
         f"returns up to {AGENT_CANDIDATES}\n", f"returns up to {agent_candidates()}\n", 1))]
     messages += [HumanMessage(e["content"]) if e["role"] == "user" else AIMessage(e["content"])
                  for e in (history or [])]
-    if shown:   # the papers on screen, so labels like '2' or 'S1' need no tool call to resolve
-        listing = "\n".join(f"[{p['label']}] {p['arxiv_id']} ({p.get('year') or '?'}) {p['title']}" for p in shown)
-        messages.append(SystemMessage(f"Papers currently shown to the user:\n{listing}"))
+    if shown:   # the current numbering (session state), after the history and right before the question
         vouched.update(p["arxiv_id"] for p in shown)
-        steps.append(f"[memory] {len(shown)} paper(s) on screen given to the model with their labels "
-                     f"({', '.join(str(p['label']) for p in shown)}).")
+        listing = "\n".join(f"[{p['label']}] {p['arxiv_id']} ({p.get('year') or '?'}) {p['title']}" for p in shown)
+        messages.append(SystemMessage(f"{NUMBERING_HEAD}\n{listing}"))
+        steps.append(f"[memory] Numbering of the {len(shown)} paper(s) on screen "
+                     f"({', '.join(str(p['label']) for p in shown)}) added after the history, before the question.")
     messages.append(HumanMessage(question))
     start_context_tracking(diag)
     answer = ""
@@ -2237,6 +2367,15 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
                     result = tool_failure_result(kind, why)
                     steps.append(f"[agent] {call['name']}({call.get('args')}) -> FAILED: {why}.")
                 messages.append(ToolMessage(content=str(result), tool_call_id=call.get("id") or call["name"]))
+            # Two searches came back empty (nothing at or above the cutoff, Qdrant's top 2 included) and nothing
+            # was found at all: stop the turn here; the code replies with what was searched (see nothing_found_text)
+            empty = [s for s in response.agent_searches if not s["returned"]]
+            if len(empty) >= 2 and not found:
+                steps.append(f"[agent] STOPPED after round {step}: {len(empty)} searches found no paper at or above "
+                             f"the reranker cutoff {rerank_cutoff()} -> no further rounds; the user is asked to "
+                             "reword the request.")
+                answer = ""
+                break
         else:
             log("Writing the answer...")
             steps.append(f"[agent] Step limit ({AGENT_MAX_STEPS} tool rounds) reached -> the model was asked for "
@@ -2276,7 +2415,7 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
             and not any(pid in answer for pid in vouched)):
         # it searched, but no paper reached the reranker cutoff (and none from the chat was used): say so plainly
         # instead of letting the model answer without sources
-        response.errors.append(NOTHING_FOUND)
+        response.errors.append(nothing_found_text(response.agent_searches))
         diag.append(f"[ranking] FAILED: {len(response.agent_searches)} search(es), no paper at or above the "
                     f"reranker cutoff {rerank_cutoff()} -> 'nothing found' reply (the model's answer was "
                     "not shown).")
@@ -2319,6 +2458,8 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
             unverified.append(pid)
         return f"[{pid} (unverified)]"
 
+    # memory copy: every citation as a plain [arXiv id], before the ids become card labels
+    response.memory_answer = CITATION_RE.sub(lambda m: f"[{m.group(1)}]", answer)
     answer = CITATION_RE.sub(renumber, answer)
     # 'arXiv:2101.00190 [2101.00190]' -> '[1] [1]': keep one
     response.answer = re.sub(r"(\[(S?\d+)\])([*_\s]{0,4})\[\2\]", lambda m: m.group(1) + m.group(3).strip(), answer)
@@ -2327,9 +2468,10 @@ def run_agent(question: str, log: LogFn = lambda msg: print(msg, flush=True), hi
     diag.track_agent_citations(cited)
     response.memory_papers = list(cited) + [pid for pid in cited_on_screen if pid not in cited]
     titles = {p["arxiv_id"]: p.get("title", "") for p in (shown or [])}
+    # memory: papers by arXiv id only (labels live in the numbering line, see assistant_turn_text)
     response.memory_note = "Papers cited: " + "; ".join(
-        [f"[{card_label(h.arxiv_id)}] [{h.arxiv_id}] {h.title}" for h in response.papers]
-        + [f"[{screen[pid]}] [{pid}] {titles.get(pid, '')}" for pid in cited_on_screen])
+        [f"[{h.arxiv_id}] {h.title}" for h in response.papers]
+        + [f"[{pid}] {titles.get(pid, '')}" for pid in cited_on_screen])
     # the agent's counterpart of the search route's [ranking] line: what the model chose to show, and from what
     diag.append(f"[ranking] Agent answer (the model chooses what to cite): cites {len(cited)} of {len(found)} "
                 f"paper(s) the tools returned -> cards {', '.join(f'[{card_label(pid)}] {pid}' for pid in cited) or 'none'}"
@@ -2398,6 +2540,7 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
     parsed = parse_message(cleaned, None)
     parsed.notes[:0] = clean_notes
     mode = parsed.mode_key if parsed.mode_key in ("search", "title") else None
+    keyed = mode is not None   # the user typed search= / title= (not the AGENT=0 fallback below)
 
     if mode is None:   # no search= / title=: the agent answers (stray keys are just text to it)
         question = cleaned
@@ -2440,6 +2583,9 @@ def run_turn(message: str, log: LogFn = lambda msg: print(msg, flush=True),
     turns, memory_note = select_history(history)
     if mode == "title":
         memory_note = "[memory] Title lookups do not use the conversation (the title is searched as typed)."
+    elif keyed:   # search= is an explicit topic: no follow-up rewrite, follow-ups are the agent's job
+        turns = []
+        memory_note = "[memory] search= does not use the conversation (the topic is searched as typed)."
     elif not history:
         memory_note = "[memory] No earlier turns in this chat."
     # [mode] and the parser notes are written before the route runs: the buffer fills in the order things happen
@@ -2489,13 +2635,13 @@ def format_response(r: SearchResponse, show_reasoning: bool = SHOW_REASONING) ->
 
     if r.mode == "title":
         lines.append("\nBest matching paper:")
-        lines += [format_hit(str(n), r.papers[n - 1]) for n in r.top_papers] or ["  (none)"]
+        lines += [format_hit(str(i), r.papers[n - 1]) for i, n in enumerate(r.top_papers, 1)] or ["  (none)"]
     else:
         if not r.survey_focus:
             lines.append("\nThree best matches (newest first):")
-            lines += [format_hit(str(n), r.papers[n - 1]) for n in r.top_papers] or ["  (none)"]
+            lines += [format_hit(str(i), r.papers[n - 1]) for i, n in enumerate(r.top_papers, 1)] or ["  (none)"]
         lines.append("\nSurvey papers (top by reranker" + (", newest first):" if r.newest_first else "):"))
-        lines += [format_hit(f"S{n}", r.surveys[n - 1]) for n in r.top_surveys] or ["  (no relevant surveys found)"]
+        lines += [format_hit(f"S{i}", r.surveys[n - 1]) for i, n in enumerate(r.top_surveys, 1)] or ["  (no relevant surveys found)"]
 
     if r.best:
         label, hit = r.best
@@ -3097,6 +3243,7 @@ autocomplete="new-password"></label>
         cl.user_session.set("selection", rebuild_selection())
         await send_settings()
         await gui.resume(thread)
+        await gui.show_history_banner(*history_banner(gui.history()))   # a long saved chat shows it at once
 
     # New chat: reset state and greet.
     @cl.on_chat_start
@@ -3182,6 +3329,7 @@ autocomplete="new-password"></label>
         tags = memory_tags(r)   # decides whether later turns read this question/answer
         gui.remember("user", prompt, tags)
         gui.remember("assistant", assistant_turn_text(r), tags)
+        await gui.show_history_banner(*history_banner(gui.history()))
         selection = gui_selection()
         on_results_shown(selection, r)
         if r.mode in ("search", "title") and not r.errors:

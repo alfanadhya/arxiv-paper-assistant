@@ -83,7 +83,7 @@
               papers, the answer cut to 2,000 characters</td></tr>
         <tr><td>Model “thinking”</td><td class="n">not kept</td>
             <td>Removed from answers before they enter the history (as Qwen3’s guidance recommends)</td></tr>
-        <tr><td>Tool rounds per question (research assistant)</td><td class="n">at most 4</td>
+        <tr><td>Tool rounds per question (research assistant)</td><td class="n">at most 3</td>
             <td>Each round resends the conversation plus the new tool results; the cap bounds growth</td></tr>
       </tbody>
     </table>
@@ -155,68 +155,92 @@ prompt estimate = characters / 3.5 (on the safe side)</pre>
     <li>The same figures are saved with every evaluation case, which is the basis for the statistics below.</li>
   </ul>
 
-  <h2><span class="num">5</span>Measured usage</h2>
+  <h2><span class="num">5</span>Measured usage per route</h2>
+  <p class="muted">The latest result of each of the 22 ground-truth cases per route, 8,192 window, reranker cutoff
+    0.7, N = 3. Shares are of the 8,192-token window.</p>
 
-  <h3><code>search=</code> title run, 21 November (22 of 22 cases)</h3>
-  <p class="muted">Run <code>20261121_ground_truth_title_search_key</code>: 22 paper titles with <code>search=</code>,
-    8,192 window, reranker cutoff 0.7.</p>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Call</th><th>Cases</th><th>Prompt (min / median / max)</th><th>Output (min / median / max)</th><th>Peak share</th></tr></thead>
+      <thead><tr><th>Route</th><th>Source (latest per case)</th><th>Model calls per message</th>
+        <th>Peak use per message (min / median / 90th pct / max)</th><th>Cut off</th></tr></thead>
       <tbody>
-        <tr><td>Spell check</td><td class="n">22 of 22</td><td class="n">1,336 / 1,352 / 1,384</td>
-            <td class="n">29 / 36 / 53</td><td class="n">18%</td></tr>
-        <tr><td>Ranking</td><td class="n">20 of 22</td><td class="n">909 / 1,244 / 1,567</td>
-            <td class="n">2,119 / 3,753 / 4,096</td><td class="n">69%</td></tr>
+        <tr><td><code>search=</code></td><td>22 Nov rerun (22)</td><td class="n">2</td>
+            <td class="n">17% / 61% / 76% / 83%</td><td class="n">0 of 22</td></tr>
+        <tr><td>Agent, plain titles</td><td>21 Nov (11) + 17 Nov (11)</td><td class="n">2</td>
+            <td class="n">44% / 54% / 64% / 68%</td><td class="n">0 of 22</td></tr>
+        <tr><td>Agent, title + filter</td><td>19 Nov (22)</td><td class="n">2</td>
+            <td class="n">36% / 48% / 54% / 55%</td><td class="n">0 of 22</td></tr>
+        <tr><td>Agent, questions</td><td>17 Nov (22)</td><td class="n">2</td>
+            <td class="n">48% / 60% / 70% / 75%</td><td class="n">0 of 22</td></tr>
+        <tr><td><code>title=</code></td><td>17 Nov (22)</td><td class="n">1</td>
+            <td class="n">10% / 10% / 11% / 11%</td><td class="n">0 of 22</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Per call</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Call</th><th>Calls</th><th>Prompt (min / median / 90th pct / max)</th>
+        <th>Output (min / median / 90th pct / max)</th><th>Largest total</th></tr></thead>
+      <tbody>
+        <tr><td><code>search=</code> spell check</td><td class="n">22</td><td class="n">1,336 / 1,352 / 1,366 / 1,384</td>
+            <td class="n">29 / 36 / 42 / 53</td><td class="n">1,437 (18%)</td></tr>
+        <tr><td><code>search=</code> ranking</td><td class="n">20</td><td class="n">909 / 1,244 / 1,487 / 1,567</td>
+            <td class="n">2,119 / 3,753 / 5,313 / 5,336</td><td class="n">6,800 (83%)</td></tr>
+        <tr><td>Agent step 1, plain titles</td><td class="n">22</td><td class="n">1,418 / 1,472 / 1,510 / 1,513</td>
+            <td class="n">286 / 1,012 / 1,726 / 1,750</td><td class="n">3,260 (40%)</td></tr>
+        <tr><td>Agent step 2, plain titles</td><td class="n">22</td><td class="n">2,853 / 3,578 / 4,269 / 4,609</td>
+            <td class="n">488 / 884 / 1,406 / 1,500</td><td class="n">5,594 (68%)</td></tr>
+        <tr><td>Agent step 1, title + filter</td><td class="n">22</td><td class="n">1,424 / 1,432 / 1,440 / 1,448</td>
+            <td class="n">604 / 910 / 1,156 / 1,442</td><td class="n">2,870 (35%)</td></tr>
+        <tr><td>Agent step 2, title + filter</td><td class="n">22</td><td class="n">2,290 / 3,344 / 3,669 / 3,807</td>
+            <td class="n">490 / 735 / 985 / 1,041</td><td class="n">4,527 (55%)</td></tr>
+        <tr><td>Agent step 1, questions</td><td class="n">22</td><td class="n">1,460 / 1,466 / 1,478 / 1,482</td>
+            <td class="n">581 / 1,676 / 2,223 / 3,258</td><td class="n">4,727 (58%)</td></tr>
+        <tr><td>Agent step 2, questions</td><td class="n">22</td><td class="n">3,213 / 4,188 / 4,908 / 5,211</td>
+            <td class="n">489 / 616 / 1,094 / 2,251</td><td class="n">6,131 (75%)</td></tr>
+        <tr><td><code>title=</code> spell check</td><td class="n">22</td><td class="n">799 / 815 / 829 / 847</td>
+            <td class="n">29 / 36 / 44 / 53</td><td class="n">900 (11%)</td></tr>
       </tbody>
     </table>
   </div>
   <ul>
-    <li>The 2 cases without a ranking call have survey targets, which are shown in reranker order without a model
-      call.</li>
-    <li>Peak window use per message: median 61%, maximum 69%.</li>
-    <li>Every case got N+2 = 5 papers; no prompt came near the limit.</li>
+    <li><strong><code>search=</code></strong> uses the most: a small ranking prompt (about 1,250 tokens for 5 papers)
+      but 2,100 to 5,300 tokens of output, almost all of it the model’s thinking. The 2 cases without a ranking call
+      have survey targets, which are shown in reranker order without a model call.</li>
+    <li><strong>Agent:</strong> step 1’s prompt is a steady 1,420 to 1,510 tokens (instructions, tools, question).
+      Step 2 resends all of step 1 plus the search results, so its prompt is 2,300 to 5,200. No question needed more
+      than 2 steps, and no step came near the 4,096-token output cap (largest 3,258).</li>
+    <li><strong><code>title=</code></strong> makes one short spell-check call; the title is matched without a
+      ranking call.</li>
   </ul>
-  <div class="note"><strong>Cut-off calls in this run.</strong> The run used a fixed 4,096-token output cap, since
-    removed. It cut off <strong>9 of the 22 cases</strong> (SQuAD, BERT, RoBERTa, Word Alignment, DPO, M3-Embedding,
-    Qwen3 Embedding, Parallel Context-of-Experts, How Retrieved Context Shapes); all 9 fell back to the reranker’s
-    order. The target was still shown first in all 9, but the model’s picks and its reason were lost, and these calls
-    took about 39.5 s against about 33 s. Under the current rule the same prompts would have had 6,370 to 7,030 tokens
-    of output room. The model’s thinking for this task typically runs 3,000 to 4,000 tokens.</div>
 
-  <h3>All evaluation runs, 17–21 November</h3>
-  <p class="muted">7 runs, 132 messages, 8,192 window.</p>
+  <h3><code>search=</code> before and after the output-room change (22 of 22 cases)</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Call</th><th>Calls</th><th>Prompt (median / 90th pct / max)</th><th>Output (median / 90th pct / max)</th><th>Max share</th><th>Cut off</th></tr></thead>
+      <thead><tr><th></th><th>21 Nov (fixed 4,096 cap)</th><th>22 Nov (output room = window − prompt − margin)</th></tr></thead>
       <tbody>
-        <tr><td>Agent step</td><td class="n">176</td><td class="n">1,902 / 4,269 / 5,407</td>
-            <td class="n">898 / 1,720 / 3,258</td><td class="n">83%</td><td class="n">0</td></tr>
-        <tr><td>Spell check</td><td class="n">44</td><td class="n">1,092 / 1,358 / 1,384</td>
-            <td class="n">36 / 44 / 53</td><td class="n">18%</td><td class="n">0</td></tr>
-        <tr><td>Ranking</td><td class="n">20</td><td class="n">1,244 / 1,487 / 1,567</td>
-            <td class="n">3,753 / 4,096 / 4,096</td><td class="n">69%</td><td class="n">9 (fixed cap, see above)</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="table-wrap" style="margin-top:12px">
-    <table>
-      <thead><tr><th>Route</th><th>Messages</th><th>Model calls per message</th><th>Peak use per message (median / 90th pct / max)</th></tr></thead>
-      <tbody>
-        <tr><td>Research assistant (agent)</td><td class="n">88</td><td class="n">2 (never more)</td><td class="n">53% / 68% / 83%</td></tr>
-        <tr><td><code>search=</code></td><td class="n">20</td><td class="n">2</td><td class="n">61% / 67% / 69%</td></tr>
-        <tr><td><code>title=</code> and survey-only searches</td><td class="n">24</td><td class="n">1</td><td class="n">10% / 11% / 17%</td></tr>
+        <tr><td>Ranking calls cut off</td><td class="n">9 of 22</td><td class="n">0 of 22</td></tr>
+        <tr><td>Fallbacks to the reranker order</td><td class="n">9 of 22</td><td class="n">0 of 22</td></tr>
+        <tr><td>Target shown first</td><td class="n">20 of 22</td><td class="n">20 of 22</td></tr>
+        <tr><td>Output of the 9 formerly cut-off cases</td><td class="n">4,096 (cut)</td><td class="n">4,151 – 5,336, all finished</td></tr>
+        <tr><td>Time of those 9 cases</td><td class="n">≈ 39.5 s each</td><td class="n">40 – 54 s, mean 47.7 s</td></tr>
+        <tr><td>Peak window use, max</td><td class="n">69%</td><td class="n">83%</td></tr>
+        <tr><td>Whole run</td><td class="n">—</td><td class="n">818 s</td></tr>
       </tbody>
     </table>
   </div>
   <ul>
-    <li><strong>Agent:</strong> no step was cut off and no question needed more than 2 rounds. Its largest call used
-      83% of the window, almost all of it the resent conversation and search results.</li>
-    <li><strong>Ranking</strong> is the only call whose output dominates: a small prompt, but 3,000 to 4,000 tokens of
-      thinking.</li>
-    <li><strong>Before any output limit</strong> (dev runs of 12 November), ranking outputs reached 6,791 tokens and
-      one call used 8,178 of 8,192 tokens, which is why the output room is now calculated per call.</li>
+    <li>The 9 cases now get the model’s own picks and its reason instead of the fallback; the target stays first in
+      all 9, as the reranker had it.</li>
+    <li>The 2 misses are unchanged (PPO and LoRA): the reranker ranks them 14th and 22nd, so they are never sent to the
+      model. That is a reranker issue, not a context one.</li>
+    <li>The largest call now uses 83% of the window, leaving about 1,400 tokens spare.</li>
   </ul>
+  <div class="note"><strong>Before any output limit</strong> (dev runs of 12 November), ranking outputs reached 6,791
+    tokens and one call used 8,178 of 8,192 tokens, which is why the output room is calculated per call: it lets the
+    model think as long as the window allows, but never past it.</div>
 
   <footer>Settings as configured in <code>threeofus_main.py</code> and <code>.env</code>; statistics from the
     <code>[context]</code> lines saved in <code>eval/runs/*/records.jsonl</code>.</footer>

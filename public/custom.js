@@ -907,3 +907,54 @@ try { localStorage.setItem("vite-ui-theme", "light"); } catch (e) { /* storage b
   new MutationObserver(mount).observe(document.documentElement, { childList: true, subtree: true });
   mount();
 })();
+
+// 14. "Long chat" banner just above the message box. Python sends {type: "history_size", tokens, limit, show}
+//     (app.show_history_banner) after every answer and when a chat is reopened; show = the history the
+//     assistant gets with the next question has reached its limit. A new or reopened chat ({type: "mode",
+//     mode: null}) hides it until Python says otherwise.
+(function () {
+  let state = null;   // last history_size message, or null = hidden
+
+  function render() {
+    const composer = document.getElementById("message-composer");
+    let banner = document.getElementById("history-banner");
+    if (!state || !state.show || !composer) {
+      if (banner) banner.remove();
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "history-banner";
+      banner.setAttribute("role", "status");
+      banner.style.cssText = "margin:0 0 6px;padding:6px 12px;border-radius:8px;font-size:13px;line-height:1.4;" +
+        "background:#fdf3e3;color:#7c4a03;border:1px solid #f3d19c;";
+    }
+    if (banner.nextElementSibling !== composer) composer.parentElement.insertBefore(banner, composer);
+    // same width as the message box (its container centres narrower children)
+    const width = Math.round(composer.getBoundingClientRect().width) + "px";
+    if (banner.style.width !== width) {
+      banner.style.width = width;
+      banner.style.boxSizing = "border-box";
+      banner.style.alignSelf = "center";
+    }
+    const text = "This chat is getting long, and older messages may soon be left out. " +
+      "For best answers, start a new chat.";
+    if (banner.textContent !== text) banner.textContent = text;
+    // the numbers stay out of the message; hovering shows them
+    banner.title = "Conversation history ~" + state.tokens.toLocaleString() + " tokens (limit " +
+      state.limit.toLocaleString() + ")";
+  }
+
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (!data) return;
+    if (data.type === "history_size") state = data;
+    else if (data.type === "mode" && !data.mode) state = null;
+    else return;
+    render();
+  });
+  window.addEventListener("resize", () => render());
+  // the composer is re-rendered by React: put the banner back when it disappears
+  new MutationObserver(() => { if (state && state.show && !document.getElementById("history-banner")) render(); })
+    .observe(document.documentElement, { childList: true, subtree: true });
+})();

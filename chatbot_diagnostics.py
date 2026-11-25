@@ -39,7 +39,9 @@ class ContextUsageHandler(BaseCallbackHandler):
                 if prompt is None and output is None:
                     continue
                 self.sink.append({"stage": self.stage, "prompt_tokens": int(prompt or 0),
-                                  "output_tokens": int(output or 0), "done_reason": meta.get("done_reason")})
+                                  "output_tokens": int(output or 0),
+                                  # Ollama: done_reason; Groq (OpenAI style): finish_reason ("length" = cut off)
+                                  "done_reason": meta.get("done_reason") or meta.get("finish_reason")})
 
 
 # Start collecting token usage for this query into diag.context_usage.

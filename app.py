@@ -83,6 +83,12 @@ async def show_mode(mode: str | None) -> None:
     await cl.send_window_message({"type": "mode", "mode": mode})
 
 
+# "Long chat" banner above the message box (public/custom.js section 13): shown while the chat's history is at or
+# above its limit, hidden otherwise (and on a new chat).
+async def show_history_banner(tokens: int, limit: int, show: bool) -> None:
+    await cl.send_window_message({"type": "history_size", "tokens": tokens, "limit": limit, "show": show})
+
+
 # Remember the labels of a result just shown (replaces the previous one) and its best match (the LLM's top
 # pick, or the title lookup's paper), so the agent can read the labels.
 def set_last_results(labelled_hits: list[tuple[str, object]], best_label: str | None = None) -> None:
@@ -135,14 +141,18 @@ def paper_year(hit) -> int:
 # Hits picked by the model, in display order, with their labels ("3", "S2"); r is a SearchResponse. The label
 # is the paper's position in this result (every result is numbered from 1).
 def picked_hits(r) -> list[tuple[str, object]]:
-    papers = [(str(n), r.papers[n - 1]) for n in r.top_papers]
-    surveys = [(f"S{n}", r.surveys[n - 1]) for n in r.top_surveys]
+    # labels follow the order on screen (1, 2, 3 ... then S1, S2 ...), on every route, so "compare 2 and 1"
+    # means the 2nd and 1st cards shown (not the papers' positions in the reranker's candidate list)
+    papers = [(str(i), r.papers[n - 1]) for i, n in enumerate(r.top_papers, start=1)]
+    surveys = [(f"S{i}", r.surveys[n - 1]) for i, n in enumerate(r.top_surveys, start=1)]
     return papers + surveys
 
 
 # Label of the best match as shown on its card; None if there is no best match.
 def best_label(r) -> str | None:
-    return r.best[0] if r.best else None
+    if not r.best:
+        return None
+    return next((label for label, hit in picked_hits(r) if hit is r.best[1]), None)
 
 
 # 'Last, First[, Suffix]' -> 'First Last[ Suffix]' (BibTeX export needs the last name last).

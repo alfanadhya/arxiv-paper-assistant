@@ -12,14 +12,14 @@ Two **keywords** at the start of a message skip the assistant and run a fixed se
 
 | Keyword | What it does | Example |
 |---|---|---|
-| `search=` | Lists research papers and surveys on a topic | `search= generative AI for construction industry year=2020-` |
+| `search=` | Lists research papers and surveys on a new topic (searched as typed; not for follow-up requests) | `search= generative AI for construction industry year=2020-` |
 | `title=` | Finds one paper by its exact title | `title= Attention is all you need` |
 
 - **Filters** (with `search=` or `title=`):
   - `year=` takes `2021` (exact), `2019-2022` (range), `2019-` (from) or `-2020` (until).
   - `author=` takes one or more names separated by `;`, e.g. `author=Kipf; Welling`. With several names, a paper must have **all** of them.
   - With `search=` they are strict filters. With `title=` they only nudge the score.
-- **Numbers and follow-ups:** the papers of each result are numbered from 1, and numbers always refer to the latest result ("compare 1 and 2", "list all authors of 1 and 3"). A question about the papers on screen keeps their numbers.
+- **Numbers and follow-ups:** the papers of each result are numbered from 1, and numbers always refer to the latest result ("compare 1 and 2", "list all authors of 1 and 3"). A question about the papers on screen keeps their numbers. Ask follow-ups without a keyword: `search=` and `title=` search only what you type and do not read the conversation.
 - **Reading list:** click **☐ Select** under a paper to add it. The panel on the right lets you reorder and remove papers, and exports a zip with a BibTeX file (for Zotero/Mendeley), the PDFs and the selected text chunks.
 - **Newest first** (checkbox in the top bar): shows the papers of a `search=` by year instead of by relevance. It's saved per user.
 - **Settings** (⚙ in the top bar), saved per user: the reranker cutoff, and whether diagnostics panels open expanded.
